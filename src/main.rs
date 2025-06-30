@@ -7,7 +7,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let db = match Database::new(&args[1]) {
+    let mut db = match Database::new(&args[1]) {
         Ok(db) => db,
         Err(e) => {
             eprintln!("Error initializing database: {}", e);
@@ -18,5 +18,13 @@ fn main() {
     println!("Database initialized with roots:");
     for root in db.roots().iter() {
         println!("{}", root.display());
+    }
+
+    match db.populate() {
+        Ok(_) => println!("DB populated with {} assets", db.assets().count()),
+        Err(e) => {
+            eprintln!("Error populating database: {}", e);
+            std::process::exit(1);
+        }
     }
 }
