@@ -1,7 +1,6 @@
 use std::{
-    collections::{HashSet, HashMap},
+    collections::HashMap,
     fs,
-    io::{BufReader, BufRead},
     path::PathBuf,
 };
 use crate::{
@@ -27,6 +26,7 @@ impl Database {
                 return Err(DatabaseError { message: format!("Error reading directory '{}': {}", path.display(), e), inner: None });
             }
         };
+
         for entry in dir {
             let entry = match entry {
                 Ok(e) => e,
@@ -36,29 +36,30 @@ impl Database {
                 }
             };
             
-            let meta_path = entry.path();
-            let meta_contents: Meta = if let Some("meta") = meta_path.extension().and_then(|s| s.to_str()) {
-                // Process the .meta file
-                let reader = match read_file_no_bom(&meta_path) {
-                    Ok(r) => r,
-                    Err(e) => return Err(DatabaseError {
-                        message: format!("failed to read meta file '{}'", meta_path.display()),
-                        inner: Some(Box::new(e)),
-                    }),
-                };
-
-                match serde_yml::from_reader(reader) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!("Error parsing .meta file '{}': {}", meta_path.display(), e);
-                        continue;
-                    }
-                }
-            }
-            else {
-                continue;
+            // skip non-meta files
+            let meta_path = match entry.path().extension().and_then(|s| s.to_str()) {
+                Some("meta") => entry.path(),
+                _ => continue,
             };
 
+            // read the meta file
+            let meta_reader = match read_file_no_bom(&meta_path) {
+                Ok(r) => r,
+                Err(e) => return Err(DatabaseError {
+                    message: format!("failed to read meta file '{}'", meta_path.display()),
+                    inner: Some(Box::new(e)),
+                }),
+            };
+
+            let meta_contents: Meta = match serde_yml::from_reader(meta_reader) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Error parsing .meta file '{}': {}", meta_path.display(), e);
+                    continue;
+                }
+            };
+
+            // process the asset file
             let asset_path = meta_path.with_extension("");
             if asset_path.is_dir() {
                 // Recursively find assets in subdirectories
@@ -67,11 +68,7 @@ impl Database {
                 }
             } else if asset_path.is_file() {
                 // Process the file as an asset
-                let asset = Asset {
-                    id: Id::Guid(meta_contents.guid),
-                    path: asset_path,
-                    dependencies: HashSet::new(), // Dependencies can be populated later
-                };
+                let asset = Asset::new(Id::Guid(meta_contents.guid), asset_path);
                 assets.insert(asset.id.clone(), asset);
             }
         }
