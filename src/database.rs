@@ -2,6 +2,7 @@ use std::{
     collections::{HashSet, HashMap },
     path::PathBuf,
 };
+use serde::Serialize;
 use crate::{asset::Asset, id::Id};
 
 mod roots;
@@ -25,8 +26,8 @@ impl std::fmt::Display for DatabaseError {
 
 impl std::error::Error for DatabaseError {}
 
+#[derive(Serialize)]
 pub struct Database {
-    // Database fields and methods
     roots: HashSet<PathBuf>,
     assets: HashMap<Id, Asset>,
 }

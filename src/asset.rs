@@ -2,8 +2,13 @@ use std::{
     path::PathBuf,
     collections::HashSet,
 };
-use crate::id::Id;
+use serde::Serialize;
+use crate::{
+    id::Id,
+    parsers::unity,
+};
 
+#[derive(Serialize)]
 pub enum AssetType {
     Prefab,
     Scene,
@@ -14,6 +19,7 @@ pub enum AssetType {
     Unknown,
 }
 
+#[derive(Serialize)]
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
@@ -32,12 +38,25 @@ impl Asset {
             Some("cs") | Some("js") => AssetType::Script,
             _ => AssetType::Unknown,
         };
+
+        let deps = match asset_type {
+            AssetType::Prefab | AssetType::Scene => {
+                match unity::parse(&path) {
+                    Ok(deps) => deps,
+                    Err(e) => {
+                        eprintln!("Failed to parse asset at {} as Unity prefab or scene: {}", path.display(), e);
+                        HashSet::new()
+                    }
+                }
+            },
+            _ => HashSet::new(),
+        };
         
         Self {
             id,
             asset_type,
             path,
-            dependencies: HashSet::new(),
+            dependencies: deps,
         }
     }
 }

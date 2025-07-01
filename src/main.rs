@@ -14,11 +14,6 @@ fn main() {
             std::process::exit(1);
         }
     };
-    
-    println!("Database initialized with roots:");
-    for root in db.roots().iter() {
-        println!("{}", root.display());
-    }
 
     match db.populate() {
         Ok(_) => println!("DB populated with {} assets", db.assets().count()),
@@ -27,4 +22,8 @@ fn main() {
             std::process::exit(1);
         }
     }
+
+    let file = std::fs::File::create("db.json").expect("Failed to create db.json");
+    let writer = std::io::BufWriter::new(file);
+    serde_json::to_writer(writer, &db).expect("Failed to write database to db.json");
 }

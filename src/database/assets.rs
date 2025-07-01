@@ -24,9 +24,8 @@ impl Database {
             Ok(d) => d,
             Err(e) => {
                 return Err(DatabaseError { message: format!("Error reading directory '{}': {}", path.display(), e), inner: None });
-            }
+            },
         };
-
         for entry in dir {
             let entry = match entry {
                 Ok(e) => e,
@@ -35,12 +34,14 @@ impl Database {
                     continue;
                 }
             };
-            
+
             // skip non-meta files
             let meta_path = match entry.path().extension().and_then(|s| s.to_str()) {
                 Some("meta") => entry.path(),
                 _ => continue,
             };
+
+            println!("Checking {}", meta_path.display());
 
             // read the meta file
             let meta_reader = match read_file_no_bom(&meta_path) {
