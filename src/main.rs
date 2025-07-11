@@ -4,6 +4,10 @@ use clap::{
     Subcommand,
     arg
 };
+use std::{
+    io::Write,
+    fs::File,
+};
 use uuid::Uuid;
 use asset_graph_rs::{
     database::Database,
@@ -14,7 +18,7 @@ use asset_graph_rs::{
 struct CliArgs {
     #[command(subcommand)]
     command: CliCommand,
-    #[arg(long, short = 'd', default_value = "db.json")]
+    #[arg(long, short = 'd', default_value = "db.bin")]
     db_path: String,
 }
 
@@ -28,7 +32,7 @@ enum CliCommand {
     },
     ResolveAssets,
     Info {
-        #[arg(long, short = 'i')]
+        #[arg(long)]
         id: Uuid,
     }
 }
@@ -65,43 +69,52 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         }
     }
 
-    let file = std::fs::File::create(&db_path).expect("Failed to create db.json");
-    let mut writer = std::io::BufWriter::new(file);
-    serde_json::to_writer_pretty(&mut writer, &db).expect("Failed to write database to db.json");
+    let mut file = File::create(&db_path)
+        .expect(format!("Failed to create {db_path}").as_str());
+    let bin = rmp_serde::to_vec(&db)
+        .expect("Failed to serialize database");
+    file.write_all(&bin)
+        .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
 fn resolve_assets(db_path: String) {
-    let file = std::fs::File::open(&db_path).expect("Failed to open db.json");
-    let mut db: Database = match serde_json::from_reader(file) {
+    let file = File::open(&db_path)
+        .expect(format!("Failed to open {db_path}").as_str());
+    let mut db: Database = match rmp_serde::from_read(file) {
         Ok(db) => {
             println!("Loaded database from {}", db_path);
             db
         },
         Err(e) => {
-            eprintln!("Error reading database from db.json: {}", e);
+            eprintln!("Error reading database from {}: {}", db_path, e);
             std::process::exit(1);
         }
     };
 
     db.resolve_assets();
 
-    let file = std::fs::File::create(&db_path).expect("Failed to create db.json");
-    let mut writer = std::io::BufWriter::new(file);
-    serde_json::to_writer_pretty(&mut writer, &db).expect("Failed to write database to db.json");
+    let mut file = File::create(&db_path)
+        .expect(format!("Failed to create {db_path}").as_str());
+    let bin = rmp_serde::to_vec(&db)
+        .expect("Failed to serialize database");
+    file.write_all(&bin)
+        .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
 fn info(db_path: &str, id: Uuid) {
-    let file = std::fs::File::open(&db_path).expect("Failed to open db.json");
-    let db: Database = match serde_json::from_reader(file) {
+    let file = File::open(&db_path)
+        .expect(format!("Failed to open {db_path}").as_str());
+    let mut db: Database = match rmp_serde::from_read(file) {
         Ok(db) => {
             println!("Loaded database from {}", db_path);
             db
         },
         Err(e) => {
-            eprintln!("Error reading database from db.json: {}", e);
+            eprintln!("Error reading database from {}: {}", db_path, e);
             std::process::exit(1);
         }
     };
+    db.populate_reverse_dependencies();
 
     match db.asset(&Id::new_uuid(id)) {
         None => {
@@ -109,7 +122,7 @@ fn info(db_path: &str, id: Uuid) {
             std::process::exit(1);
         },
         Some(asset) => {
-            println!("{asset}");
+            println!("{}", asset.bind(&db));
         },
     }
 }

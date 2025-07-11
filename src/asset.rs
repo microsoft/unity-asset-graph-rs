@@ -1,10 +1,10 @@
 use std::{
-    path::PathBuf,
-    collections::HashSet,
+    collections::HashSet, fmt::Display, path::PathBuf
 };
 use serde::{Deserialize, Serialize};
 use crate::{
     id::Id,
+    database::Database,
     parsers::{unity::UnityObject, ParseError, Parser},
 };
 
@@ -40,6 +40,9 @@ pub struct Asset {
     pub path: PathBuf,
     pub loc_roots: HashSet<PathBuf>,
     pub dependencies: HashSet<Id>,
+
+    #[serde(skip)]
+    pub dependents: HashSet<Id>,
 }
 
 impl Asset {
@@ -60,6 +63,7 @@ impl Asset {
             path,
             loc_roots: HashSet::new(),
             dependencies: HashSet::new(),
+            dependents: HashSet::new(),
         }
     }
 
@@ -69,6 +73,13 @@ impl Asset {
             _ => { Ok(()) },
         }
     }
+
+    pub fn bind<'a, 'b>(&'a self, db: &'b Database) -> BoundAsset<'a, 'b> {
+        BoundAsset {
+            asset: self,
+            db,
+        }
+    }
 }
 
 impl std::fmt::Display for Asset {
@@ -76,9 +87,47 @@ impl std::fmt::Display for Asset {
         writeln!(f, "Asset ID: {}", self.id)?;
         writeln!(f, "Type: {}", self.asset_type)?;
         writeln!(f, "Path: {}", self.path.display())?;
-        writeln!(f, "Dependencies:")?;
+        writeln!(f, "Dependents ({}):", self.dependents.len())?;
+        for dep in &self.dependents {
+            writeln!(f, " - {}", dep)?;
+        }
+        writeln!(f, "Dependencies ({}):", self.dependencies.len())?;
         for dep in &self.dependencies {
             writeln!(f, " - {}", dep)?;
+        }
+        Ok(())
+    }
+}
+
+pub struct BoundAsset<'a, 'b> {
+    pub asset: &'a Asset,
+    pub db: &'b Database,
+}
+
+impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Asset ID: {}", self.asset.id)?;
+        writeln!(f, "Type: {}", self.asset.asset_type)?;
+        writeln!(f, "Path: {}", self.asset.path.display())?;
+
+        // todo: sort by name
+        writeln!(f, "Dependents ({}):", self.asset.dependents.len())?;
+        for dep in &self.asset.dependents {
+            let out: &dyn Display = match self.db.asset(dep) {
+                Some(a) => &a.path.display(),
+                None => dep,
+            };
+            writeln!(f, " - {}", out)?;
+        }
+
+        // todo: sort by name
+        writeln!(f, "Dependencies ({}):", self.asset.dependencies.len())?;
+        for dep in &self.asset.dependencies {
+            let out: &dyn Display = match self.db.asset(dep) {
+                Some(a) => &a.path.display(),
+                None => dep,
+            };
+            writeln!(f, " - {}", out)?;
         }
         Ok(())
     }

@@ -60,6 +60,25 @@ impl Database {
         }
     }
 
+    pub fn populate_reverse_dependencies(&mut self) {
+        let keys: Vec<Id> = self.assets.keys().cloned().collect();
+        for asset_id in keys.iter() {
+            let (id, asset) = match self.assets.remove_entry(asset_id) {
+                Some(e) => e,
+                None => continue,
+            };
+            for dep_id in &asset.dependencies {
+                let (id, mut dep) = match self.assets.remove_entry(dep_id) {
+                    Some(e) => e,
+                    None => continue,
+                };
+                dep.dependents.insert(asset_id.clone());
+                self.assets.insert(id, dep);
+            }
+            self.assets.insert(id, asset);
+        }
+    }
+
     pub fn roots(&self) -> &HashSet<PathBuf> {
         &self.roots
     }
