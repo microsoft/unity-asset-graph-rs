@@ -94,4 +94,9 @@ impl Database {
     pub fn asset(&self, id: &Id) -> Option<&Asset> {
         self.assets.get(id)
     }
+
+    pub fn asset_by_name(&self, name: &str) -> Option<&Asset> {
+        self.assets.values()
+            .find(|asset| asset.path.file_name().map_or(false, |f| f == name))
+    }
 }

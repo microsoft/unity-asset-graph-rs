@@ -1,5 +1,6 @@
 use std::{
-    collections::HashSet, fmt::Display, path::PathBuf
+    collections::HashSet,
+    path::PathBuf,
 };
 use serde::{Deserialize, Serialize};
 use crate::{
@@ -110,24 +111,31 @@ impl<'a, 'b> std::fmt::Display for BoundAsset<'a, 'b> {
         writeln!(f, "Type: {}", self.asset.asset_type)?;
         writeln!(f, "Path: {}", self.asset.path.display())?;
 
-        // todo: sort by name
         writeln!(f, "Dependents ({}):", self.asset.dependents.len())?;
-        for dep in &self.asset.dependents {
-            let out: &dyn Display = match self.db.asset(dep) {
-                Some(a) => &a.path.display(),
-                None => dep,
-            };
-            writeln!(f, " - {}", out)?;
+        let mut deps: Vec<String> = self.asset.dependents.iter()
+            .map(|id| 
+                self.db.asset(id)
+                .and_then(|a|
+                    Some(a.path.display().to_string())
+                )
+                .unwrap_or(id.to_string())
+            ).collect();
+        deps.sort();
+        for dep in &deps {
+            writeln!(f, " - {}", dep)?;
         }
 
-        // todo: sort by name
         writeln!(f, "Dependencies ({}):", self.asset.dependencies.len())?;
-        for dep in &self.asset.dependencies {
-            let out: &dyn Display = match self.db.asset(dep) {
-                Some(a) => &a.path.display(),
-                None => dep,
-            };
-            writeln!(f, " - {}", out)?;
+        let mut deps: Vec<String> = self.asset.dependencies.iter()
+            .map(|id| 
+                self.db.asset(id)
+                .and_then(|a| Some(a.path.display().to_string()))
+                .unwrap_or(id.to_string())
+            ).collect();
+        deps.sort();
+
+        for dep in deps {
+            writeln!(f, " - {}", dep)?;
         }
         Ok(())
     }

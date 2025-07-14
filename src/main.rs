@@ -33,7 +33,9 @@ enum CliCommand {
     ResolveAssets,
     Info {
         #[arg(long)]
-        id: Uuid,
+        id: Option<Uuid>,
+        #[arg(long)]
+        name: Option<String>,
     }
 }
 
@@ -46,8 +48,8 @@ fn main() {
         CliCommand::ResolveAssets => {
             resolve_assets(args.db_path);
         },
-        CliCommand::Info { id } => {
-            info(&args.db_path, id);
+        CliCommand::Info { id, name } => {
+            info(&args.db_path, id, name);
         }
     }
 }
@@ -101,7 +103,7 @@ fn resolve_assets(db_path: String) {
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
-fn info(db_path: &str, id: Uuid) {
+fn info(db_path: &str, id: Option<Uuid>, name: Option<String>) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -110,19 +112,30 @@ fn info(db_path: &str, id: Uuid) {
             db
         },
         Err(e) => {
-            eprintln!("Error reading database from {}: {}", db_path, e);
-            std::process::exit(1);
+            panic!("Error reading database from {}: {}", db_path, e);
         }
     };
     db.populate_reverse_dependencies();
 
-    match db.asset(&Id::new_uuid(id)) {
-        None => {
-            eprintln!("No asset found with ID: {}", id);
-            std::process::exit(1);
-        },
-        Some(asset) => {
-            println!("{}", asset.bind(&db));
-        },
+    if let Some(id) = id {
+        match db.asset(&Id::new_uuid(id)) {
+            None => {
+                panic!("No asset found with ID: {}", id);
+            },
+            Some(asset) => {
+                println!("{}", asset.bind(&db));
+            },
+        };
     }
+    else if let Some(name) = name {
+        if let Some(asset) = db.asset_by_name(&name) {
+            println!("{}", asset.bind(&db));
+        } else {
+            panic!("No asset found with name: {}", name);
+        }
+    }
+    else {
+        panic!("Either --id or --name must be provided");
+    }
+    
 }
