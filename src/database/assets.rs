@@ -249,7 +249,7 @@ impl Database {
             path.clone()
         };
 
-        let asset = Asset::new(Id::Guid(asset_guid), rel_path);
+        let asset = Asset::new_with_path(Id::Guid(asset_guid), rel_path);
 
         match assets.lock() {
             Ok(mut assets) => {
@@ -267,7 +267,7 @@ impl Database {
         relative_to: Option<&PathBuf>,
         tx: &mut mpsc::Sender<Asset>,
     ) -> Result<(), DatabaseError> {
-        let mut asset = Asset::new(id.clone(), path.clone());
+        let mut asset = Asset::new_with_path(id.clone(), path.clone());
         let subassets = match parser::parse(&mut asset, relative_to) {
             Ok(subs) => subs,
             Err(e) => {

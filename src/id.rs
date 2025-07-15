@@ -7,6 +7,12 @@ pub enum Id {
     Loc(String),
 }
 
+impl Default for Id {
+    fn default() -> Self {
+        Id::Guid(Uuid::nil())
+    }
+}
+
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -74,14 +74,9 @@ impl Database {
                 let (id, mut dep) = match self.assets.remove_entry(dep_id) {
                     Some(e) => e,
                     None => {
-                        (dep_id.clone(), Asset {
-                            id: dep_id.clone(),
-                            path: PathBuf::new(),
-                            asset_type: AssetType::BrokenRef,
-                            dependencies: HashSet::new(),
-                            dependents: HashSet::new(),
-                            loc_roots: HashSet::new(),
-                        })
+                        let mut a = Asset::new(dep_id.clone());
+                        a.asset_type = AssetType::BrokenRef;
+                        (dep_id.clone(), a)
                     },
                 };
                 dep.dependents.insert(asset_id.clone());

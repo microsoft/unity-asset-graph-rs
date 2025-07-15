@@ -9,7 +9,8 @@ use crate::{
     asset::Asset,
     id::Id,
     parser::{
-        localized_text::LocStringParser,
+        loc_text::LocStringParser,
+        loc_manager::LocManagerParser,
         ParseError,
     },
 };
@@ -36,7 +37,9 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
 }
 
 fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
-    let mut loc_parser = LocStringParser::Start;
+    let mut loctext_parser = LocStringParser::Start;
+    let mut locmgr_parser = LocManagerParser::Start;
+
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
@@ -45,10 +48,17 @@ fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec
                 inner: None,
             }),
         };
-        loc_parser = loc_parser.update(&line);
-        if let LocStringParser::LocStringKey(id) = loc_parser {
+
+        loctext_parser = loctext_parser.update(&line);
+        if let LocStringParser::LocStringKey(id) = loctext_parser {
             asset.dependencies.insert(id);
-            loc_parser = LocStringParser::Start;
+            loctext_parser = LocStringParser::Start;
+        }
+
+        locmgr_parser = locmgr_parser.update(&line);
+        if let LocManagerParser::Names(names) = locmgr_parser {
+            asset.loc_roots = names;
+            locmgr_parser = LocManagerParser::Start;
         }
 
         if let Some(captures) = ID_REGEX.captures(&line)
@@ -103,7 +113,7 @@ MonoBehaviour:
     #[test]
     fn test_parse_unity_reader() {
         let mut reader = BufReader::new(PREFAB.as_bytes());
-        let mut asset = Asset::new(Id::Guid(Uuid::nil()), PathBuf::from("test.prefab"));
+        let mut asset = Asset::new_with_path(Id::Guid(Uuid::nil()), PathBuf::from("test.prefab"));
         let result = parse_unity_reader(&mut reader, &mut asset);
 
         assert!(result.is_ok());

@@ -8,15 +8,16 @@ use crate::{
     database::Database,
 };
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Default)]
 pub enum AssetType {
+    #[default]
+    Unknown,
     Prefab,
     Scene,
     Texture,
     Model,
     Audio,
     Script,
-    Unknown,
     BrokenRef,
 }
 
@@ -35,12 +36,12 @@ impl std::fmt::Display for AssetType {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct Asset {
     pub id: Id,
     pub asset_type: AssetType,
     pub path: PathBuf,
-    pub loc_roots: HashSet<PathBuf>,
+    pub loc_roots: Vec<String>,
     pub dependencies: HashSet<Id>,
 
     #[serde(skip)]
@@ -48,8 +49,15 @@ pub struct Asset {
 }
 
 impl Asset {
-    pub fn new(id: Id, path: PathBuf) -> Self {
-        let asset_type = match path.extension().and_then(|s| s.to_str()) {
+    pub fn new(id: Id) -> Self {
+        Self {
+            id,
+            ..Default::default()
+        }
+    }
+    pub fn new_with_path(id: Id, path: PathBuf) -> Self {
+        let mut a = Self::new(id);
+        a.asset_type = match path.extension().and_then(|s| s.to_str()) {
             Some("prefab") => AssetType::Prefab,
             Some("unity") | Some("scene") => AssetType::Scene,
             Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
@@ -58,15 +66,7 @@ impl Asset {
             Some("cs") | Some("js") => AssetType::Script,
             _ => AssetType::Unknown,
         };
-
-        Self {
-            id,
-            asset_type,
-            path,
-            loc_roots: HashSet::new(),
-            dependencies: HashSet::new(),
-            dependents: HashSet::new(),
-        }
+        a
     }
 
     pub fn bind<'a, 'b>(&'a self, db: &'b Database) -> BoundAsset<'a, 'b> {
