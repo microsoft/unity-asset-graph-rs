@@ -91,7 +91,9 @@ fn resolve_assets(db_path: String) {
         }
     };
 
-    db.resolve_assets();
+    if let Err(e) = db.resolve_assets() {
+        panic!("Error resolving assets: {}", e);
+    }
 
     let mut file = File::create(&db_path)
         .expect(format!("Failed to create {db_path}").as_str());
