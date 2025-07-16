@@ -43,10 +43,14 @@ enum CliCommand {
     FindUnused {
         #[arg(long)]
         id_type: Option<OrphanFilter>,
+        #[arg(long, default_value = "false")]
+        id_only: bool,
     },
     FindBrokenRefs {
         #[arg(long)]
         id_type: Option<OrphanFilter>,
+        #[arg(long, default_value = "false")]
+        id_only: bool,
     },
 }
 
@@ -80,11 +84,11 @@ fn main() {
         CliCommand::Info { id, name } => {
             info(&args.db_path, id, name);
         },
-        CliCommand::FindUnused { id_type } => {
-            find_unused(&args.db_path, id_type);
+        CliCommand::FindUnused { id_type, id_only } => {
+            find_unused(&args.db_path, id_type, id_only);
         },
-        CliCommand::FindBrokenRefs { id_type } => {
-            find_broken_refs(&args.db_path, id_type);
+        CliCommand::FindBrokenRefs { id_type, id_only } => {
+            find_broken_refs(&args.db_path, id_type, id_only);
         },
     }
 }
@@ -179,7 +183,7 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>) {
     
 }
 
-fn find_unused(db_path: &str, id_type: Option<OrphanFilter>) {
+fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -216,14 +220,19 @@ fn find_unused(db_path: &str, id_type: Option<OrphanFilter>) {
 
     println!("Unused assets ({}):", orphans.len());
     for asset in orphans.values() {
-        println!("{}", asset.bind(&db).indent());
+        if id_only {
+            println!("{}", asset.id);
+        }
+        else {
+            println!("{}", asset.bind(&db).indent());
+        }
     }
     if orphans.is_empty() {
         println!("No unused assets found.");
     }
 }
 
-fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>) {
+fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -256,7 +265,12 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>) {
 
     println!("\nBroken references ({}):", broken_refs.len());
     for asset in broken_refs.values() {
-        println!("{}", asset.bind(&db).indent());
+        if id_only {
+            println!("{}", asset.id);
+        }
+        else {
+            println!("{}", asset.bind(&db).indent());
+        }
     }
     if broken_refs.is_empty() {
         println!("No broken references found.");
