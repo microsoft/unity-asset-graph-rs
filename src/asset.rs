@@ -12,6 +12,7 @@ use crate::{
 pub enum AssetType {
     #[default]
     Unknown,
+    Directory,
     Prefab,
     Scene,
     Texture,
@@ -27,6 +28,7 @@ impl std::fmt::Display for AssetType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AssetType::Unknown => write!(f, "Unknown"),
+            AssetType::Directory => write!(f, "Directory"),
             AssetType::Prefab => write!(f, "Prefab"),
             AssetType::Scene => write!(f, "Scene"),
             AssetType::Texture => write!(f, "Texture"),
@@ -59,9 +61,11 @@ impl Asset {
         }
     }
     pub fn new_with_path(id: Id, path: PathBuf) -> Self {
-        Self {
-            id,
-            asset_type: match &path.extension().and_then(|s| s.to_str()) {
+        let asset_type = if path.is_dir() {
+            AssetType::Directory
+        }
+        else {
+            match &path.extension().and_then(|s| s.to_str()) {
                 Some("prefab") => AssetType::Prefab,
                 Some("unity") | Some("scene") => AssetType::Scene,
                 Some("png") | Some("jpg") | Some("jpeg") => AssetType::Texture,
@@ -69,7 +73,12 @@ impl Asset {
                 Some("wav") | Some("mp3") => AssetType::Audio,
                 Some("cs") | Some("js") => AssetType::Script,
                 _ => AssetType::Unknown,
-            },
+            }
+        };
+
+        Self {
+            id,
+            asset_type,
             path: Some(path),
             ..Default::default()
         }

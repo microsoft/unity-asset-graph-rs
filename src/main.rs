@@ -185,9 +185,12 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>, roots: bool) {
         };
     }
     else if let Some(name) = name {
-        if let Some(asset) = db.asset_by_name(&name) {
+        let mut count = 0;
+        for asset in db.assets_by_name(&name) {
+            count += 1;
             println!("{}", asset.bind(&db));
-        } else {
+        }
+        if count == 0 {
             panic!("No asset found with name: {}", name);
         }
     }

@@ -103,16 +103,17 @@ impl Database {
         self.assets.get(id)
     }
 
-    pub fn asset_by_name(&self, name: &str) -> Option<&Asset> {
-        for asset in self.assets.values() {
-            if let Some(p) = asset.path.as_ref()
+    pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
+        self.assets.values().filter(move |a| {
+            if let Some(p) = a.path.as_ref()
                 && let Some(file_name) = p.file_name()
                 && let Some(name_str) = file_name.to_str()
-                && name_str == name
-            {
-                return Some(asset);
+                && name_str == name {
+                true
             }
-        }
-        None
+            else {
+                false
+            }
+        })
     }
 }

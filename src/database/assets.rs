@@ -115,6 +115,20 @@ impl Database {
                 continue;
             }
 
+            match Self::find_assets_file(&path, relative_to) {
+                Ok(Some(asset)) => {
+                    if let Err(e) = assets_tx.send(asset) {
+                        eprintln!("Error sending asset: {}", e);
+                    }
+                },
+                Ok(None) => { },
+                Err(e) => {
+                    if let Err(e) = err_tx.send(e) {
+                        eprintln!("Error sending error: {}", e);
+                    }
+                }
+            }
+
             if path.is_dir() {
                 match Self::find_assets_dir(&path) {
                     Ok(new_paths) => {
@@ -137,21 +151,6 @@ impl Database {
                     }
                 };
             }
-            else {
-                match Self::find_assets_file(&path, relative_to) {
-                    Ok(Some(asset)) => {
-                        if let Err(e) = assets_tx.send(asset) {
-                            eprintln!("Error sending asset: {}", e);
-                        }
-                    },
-                    Ok(None) => { },
-                    Err(e) => {
-                        if let Err(e) = err_tx.send(e) {
-                            eprintln!("Error sending error: {}", e);
-                        }
-                    }
-                }
-            };
         }
     }
 
