@@ -233,13 +233,13 @@ impl Database {
             }));
         }
 
-        let mut progress = 0usize;
         loop {
             while let Ok(asset) = rx.try_recv() {
                 self.assets.insert(asset.id.clone(), asset);
+
+                let progress = asset_count - assets.lock().unwrap().len();
                 let pct = (progress as f64 / asset_count as f64) * 100.0;
                 print!("\rResolving assets: {:.2}% ({}/{})", pct, progress, asset_count);
-                progress += 1;
             }
 
             let mut first = true;

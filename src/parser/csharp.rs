@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
-use regex::Regex;
 use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 use tree_sitter_c_sharp as cs;
 use crate::{
@@ -15,19 +14,26 @@ use crate::{
     Relation,
 };
 
-static LOC_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"LocStringCache.Get\("([^"]+)""#).expect("Failed to compile locString regex")
-});
-
 static CS_LANG: LazyLock<Language> = LazyLock::new(|| {
     cs::LANGUAGE.into()
 });
 
-static CLASS_QUERY: LazyLock<Query> = LazyLock::new(|| {
+/// Query to find class, struct, enum, and interface declarations.
+/// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
+static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&CS_LANG, r#"
-(class_declaration
-    name: (identifier) @class_name
-)"#)
+[(class_declaration
+    name: (identifier) @name
+)
+(struct_declaration
+    name: (identifier) @name
+)
+(enum_declaration
+    name: (identifier) @name
+)
+(interface_declaration
+    name: (identifier) @name
+)]"#)
         .expect("Failed to compile class query")
 });
 
@@ -88,11 +94,11 @@ fn parse_buffer(
     };
 
     let mut q = QueryCursor::new();
-    let mut iter = q.matches(&CLASS_QUERY, tree.root_node(), buffer);
+    let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
     while let Some(m) = iter.next() {
         let node = m.captures[0].node;
         let text = &buffer[node.start_byte()..node.end_byte()];
-        let class_name = match std::str::from_utf8(text) {
+        let obj_name = match std::str::from_utf8(text) {
             Ok(name) => name,
             Err(_) => continue,
         };
@@ -118,13 +124,13 @@ fn parse_buffer(
         }
 
         let fqn = if let Some(ns) = namespace {
-            format!("{ns}.{class_name}")
+            format!("{ns}.{obj_name}")
         } else {
-            class_name.to_string()
+            obj_name.to_string()
         };
 
         let mut def = Asset {
-            id: Id::CsDeclaration(fqn),
+            id: Id::CsType(fqn),
             path: None,
             asset_type: AssetType::CsDeclaration,
             ..Default::default()

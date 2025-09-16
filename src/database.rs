@@ -121,7 +121,7 @@ impl Database {
                 && name_str == name {
                 true
             }
-            else if let Id::CsDeclaration(cs_name) = &a.id && cs_name.ends_with(name) {
+            else if let Id::CsType(cs_name) = &a.id && cs_name.ends_with(name) {
                 return true;
             }
             else {
