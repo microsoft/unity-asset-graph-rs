@@ -53,8 +53,8 @@ pub fn find_locstrings(tree: &Tree, buffer: &[u8], path: &Path, asset: &mut Asse
 
         if node.kind() == "string_literal" {
             // trim open/close quotes
-            let text = match std::str::from_utf8(&buffer[node.start_byte()+1..node.end_byte()-1]) {
-                Ok(t) => t,
+            let text = match node.utf8_text(buffer) {
+                Ok(t) => &t[1..t.len()-1],
                 Err(_) => {
                     eprintln!("\nFailed to read UTF-8 from {}", path.display());
                     continue;
@@ -64,7 +64,7 @@ pub fn find_locstrings(tree: &Tree, buffer: &[u8], path: &Path, asset: &mut Asse
         }
         else {
             let pos = node.start_position();
-            let text = match std::str::from_utf8(&buffer[node.start_byte()..node.end_byte()]) {
+            let text = match node.utf8_text(buffer) {
                 Ok(t) => t,
                 Err(_) => {
                     eprintln!("\nFailed to read UTF-8 from {}", path.display());

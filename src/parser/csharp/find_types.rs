@@ -1,5 +1,15 @@
-use std::sync::{Arc, Mutex, LazyLock};
-use tree_sitter::{Node, Query, QueryCursor, StreamingIterator, Tree};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, LazyLock},
+};
+use tree_sitter::{
+    Node, 
+    Query, 
+    QueryCapture, 
+    QueryCursor, 
+    StreamingIterator, 
+    Tree,
+};
 use crate::{
     Asset, 
     AssetType, 
@@ -7,6 +17,36 @@ use crate::{
     parser::{ParseError, TypeBroker}, 
     Relation,
 };
+
+pub fn find_types(
+    tree: &Tree, 
+    buffer: &[u8], 
+    asset: &mut Asset, 
+    def_assets: &mut Vec<Asset>, 
+    broker: &Arc<Mutex<TypeBroker>>,
+) -> Result<(), ParseError> {
+    let decls = find_declarations(tree, buffer);
+
+    for decl in &decls {
+        let (name, namespace) = resolve_declaration(*decl, buffer);
+        let a = Asset {
+            id: Id::CsType { name, namespace },
+            path: None,
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
+            ..Default::default()
+        };
+        def_assets.push(a);
+
+        let usages = find_usages(decl.parent().unwrap(), buffer);
+        for u in usages.iter().filter(|n| !decls.contains(n)) {
+            println!("Possible external type: {}", u.utf8_text(buffer).unwrap());
+        }
+    }
+
+    Ok(())
+}
+
 
 /// Query to find class, struct, enum, and interface declarations.
 /// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
@@ -25,84 +65,72 @@ static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
     (interface_declaration
         name: (identifier) @name
     )
-]"#).expect("Failed to compile class query")
+]"#
+    ).expect("Failed to compile class query")
 });
 
-static ID_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-[
-    (member_access_expression
-        expression: (identifier) @type
-    )
-    (variable_declaration
-        type: (identifier) @type
-    )
-]"#).expect("Failed to compile identifier query")
-});
+fn find_declarations<'a>(
+    tree: &'a Tree,
+    buffer: &'a [u8],
+) -> Vec<Node<'a>> {
+    let mut decls = vec![];
 
-pub fn find_types(
-    tree: &Tree, 
-    buffer: &[u8], 
-    asset: &mut Asset, 
-    def_assets: &mut Vec<Asset>, 
-    broker: &Arc<Mutex<TypeBroker>>,
-) -> Result<(), ParseError> {
     // loop over all type declarations
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
     while let Some(m) = iter.next() {
-        // get the name of the type
-        let node = m.captures[0].node;
-        let text = &buffer[node.start_byte()..node.end_byte()];
-        let type_name = match std::str::from_utf8(text) {
-            Ok(name) => name,
-            Err(_) => continue,
-        };
+        decls.push(m.captures[0].node);
+    }
+    decls
+}
 
-        // find the namespace, if any
-        let mut parent = node.parent();
-        let mut namespace = None;
-        while let Some(p) = parent {
-            if p.kind() == "namespace_declaration" {
-                if let Some(name_node) = p.child_by_field_name("name") {
-                    let name_text = &buffer[name_node.start_byte()..name_node.end_byte()];
-                    match std::str::from_utf8(name_text) {
-                        Ok(ns) => {
-                            namespace = Some(ns);
-                            break;
-                        },
-                        Err(_) => break,
-                    }
-                } else {
-                    break;
-                }
-            }
-            parent = p.parent();
+fn resolve_declaration(id_node: Node, buffer: &[u8]) -> (String, Option<String>) {
+    let mut name_parts = vec![];
+    let mut node = id_node.parent();
+    while let Some(n) = node && n.kind() != "namespace_declaration" {
+        if let "class_declaration" | "struct_declaration" | "enum_declaration" | "interface_declaration" = n.kind() {
+            name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap())
         }
-
-        // create a new asset for this type
-        let mut def = Asset {
-            id: Id::CsType { name: type_name.into(), namespace: namespace.map(|s| s.into()) },
-            path: None,
-            asset_type: AssetType::CsType,
-            ..Default::default()
-        };
-        def.relations.insert(Relation::ContainedBy(asset.id.clone()));
-
-        def_assets.push(def);
+        node = n.parent();
     }
 
-    let mut types = std::collections::HashSet::new();
-    let mut q = QueryCursor::new();
-    let mut iter = q.matches(&ID_QUERY, tree.root_node(), buffer);
+    let mut ns_parts: Vec<&str> = vec![];
+    while let Some(n) = node {
+        if n.kind() == "namespace_declaration" {
+            ns_parts.push(
+                n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
+            );
+        }
+        node = n.parent();
+    }
+
+    let name = name_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
+    let ns = ns_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
+    (name, if ns_parts.is_empty() { None } else { Some(ns) })
+}
+
+static USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&super::CS_LANG, r#"
+(type) @type
+"#
+    ).expect("Failed to compile usage query")
+});
+
+fn find_usages<'a>(
+    node: Node<'a>, 
+    buffer: &[u8], 
+) -> Vec<Node<'a>> {
+    let mut usages = vec![];
+
+    let mut qcursor = QueryCursor::new();
+    let mut iter = qcursor.matches(&USAGE_QUERY, node, buffer);
     while let Some(m) = iter.next() {
-        types.insert(m.captures[0].node.utf8_text(buffer).unwrap());
-        debug(m.captures[0].node, buffer);
-        println!();
+        let node = m.captures[0].node;
+        if node.kind() != "predefined_type" {
+            usages.push(node);
+        }
     }
-
-    println!("Found types: {:?}", types);
-    Ok(())
+    usages
 }
 
 fn debug(node: Node, buffer: &[u8]) {

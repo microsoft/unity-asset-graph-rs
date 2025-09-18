@@ -90,9 +90,13 @@ mod test {
     fn test_parse_csharp() -> Result<(), ParseError> {
         let code = r#"
 using System;
-namespace MyNamespace {
+using LocalizedString = System.FakeNamespace.LocalizedString;
+
+namespace My.Namespace {
     public class MyClass {
-        private static LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
+        internal class UnderClass { }
+
+        private static System.FakeNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
 
         private static LocalizedString locstringPrefixed = LocStringCache.Get(
             key: "PrefixedKey",
@@ -119,9 +123,11 @@ namespace MyNamespace {
     interface IMyInterface {
         void DoSomething();
     }
-}
 
-public class UnrelatedClass { }
+    namespace InnerNamespace {
+        class InnerClass { }
+    }
+}
 "#;
         let mut asset = Asset {
             asset_type: AssetType::CsFile,
@@ -137,11 +143,12 @@ public class UnrelatedClass { }
         ]));
 
         assert_eq!(more_assets.into_iter().map(|a| a.id).collect::<Vec<Id>>(), vec![
-            Id::CsType { name: "MyClass".into(), namespace: Some("MyNamespace".into()) },
-            Id::CsType { name: "MyStruct".into(), namespace: Some("MyNamespace".into()) },
-            Id::CsType { name: "MyEnum".into(), namespace: Some("MyNamespace".into()) },
-            Id::CsType { name: "IMyInterface".into(), namespace: Some("MyNamespace".into()) },
-            Id::CsType { name: "UnrelatedClass".into(), namespace: None },
+            Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+            Id::CsType { name: "MyClass.UnderClass".into(), namespace: Some("My.Namespace".into()) },
+            Id::CsType { name: "MyStruct".into(), namespace: Some("My.Namespace".into()) },
+            Id::CsType { name: "MyEnum".into(), namespace: Some("My.Namespace".into()) },
+            Id::CsType { name: "IMyInterface".into(), namespace: Some("My.Namespace".into()) },
+            Id::CsType { name: "InnerClass".into(), namespace: Some("My.Namespace.InnerNamespace".into()) },
         ]);
 
         // assert_eq!(broker.requests(), &HashSet::from([
