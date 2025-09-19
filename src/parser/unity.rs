@@ -6,20 +6,21 @@ use std::{
 use regex::Regex;
 use uuid::Uuid;
 use crate::{
-    asset::Asset,
+    asset::{Asset, Relation},
     id::Id,
-    parser::{
-        loc_text::LocStringParser,
-        loc_override::LocOverrideParser,
-        ParseError,
-    },
+    parser::ParseError,
+};
+#[cfg(feature = "locstring")]
+use crate::parser::{
+    loc_text::LocStringParser,
+    loc_override::LocOverrideParser,
 };
 
 static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex")
 });
 
-pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),
@@ -27,43 +28,53 @@ pub fn parse_unity(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<V
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to read prefab file: {}", e),
-        }),
+        Err(e) => return Err(ParseError::new(&path, format!("Failed to read prefab file: {}", e))),
     };
 
-    parse_unity_reader(&mut reader, asset)
+    parse_reader(&mut reader, asset, relative_to)
 }
 
-fn parse_unity_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
+fn parse_reader(
+    reader: &mut dyn BufRead, 
+    asset: &mut Asset, 
+    relative_to: Option<&PathBuf>,
+) -> Result<Vec<Asset>, ParseError> {
+    let path = match relative_to {
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
+    };
+
+    #[cfg(feature = "locstring")]
     let mut loctext_parser = LocStringParser::Start;
+    #[cfg(feature = "locstring")]
     let mut locoverride_parser = LocOverrideParser::Start;
 
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
-            Err(e) => return Err(ParseError {
-                message: format!("Failed to read line: {}", e),
-            }),
+            Err(e) => return Err(ParseError::new(path, format!("Failed to read line: {}", e))),
         };
 
-        loctext_parser = loctext_parser.update(&line);
-        if let LocStringParser::LocStringKey(id) = loctext_parser {
-            asset.dependencies.insert(id);
-            loctext_parser = LocStringParser::Start;
-        }
-
-        locoverride_parser = locoverride_parser.update(&line);
-        if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
-            asset.dependencies.insert(Id::Loc(value));
-            locoverride_parser = LocOverrideParser::Modifications;
+        #[cfg(feature = "locstring")]
+        {
+            loctext_parser = loctext_parser.update(&line);
+            if let LocStringParser::LocStringKey(id) = loctext_parser {
+                asset.relations.insert(Relation::Uses(id));
+                loctext_parser = LocStringParser::Start;
+            }
+            
+            locoverride_parser = locoverride_parser.update(&line);
+            if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
+                asset.relations.insert(Relation::Uses(Id::Loc(value)));
+                locoverride_parser = LocOverrideParser::Modifications;
+            }
         }
 
         if let Some(captures) = ID_REGEX.captures(&line)
             && let Some(id_str) = captures.get(1)
             && let Ok(uuid) = Uuid::parse_str(id_str.as_str())
         {
-            asset.dependencies.insert(Id::Guid(uuid));
+            asset.relations.insert(Relation::Uses(Id::Guid(uuid)));
         }
     }
 
@@ -75,6 +86,7 @@ mod test {
     use std::io::BufReader;
 
     use super::*;
+    use crate::asset_type::AssetType;
 
     const PREFAB: &str = r#"%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
@@ -139,14 +151,19 @@ PrefabInstance:
     #[test]
     fn test_parse_unity_reader() {
         let mut reader = BufReader::new(PREFAB.as_bytes());
-        let mut asset = Asset::new_with_path(Id::Guid(Uuid::nil()), PathBuf::from("test.prefab"));
-        let result = parse_unity_reader(&mut reader, &mut asset);
+        let mut asset = Asset {
+            id: Id::Guid(Uuid::nil()),
+            asset_type: AssetType::Prefab,
+            path: Some(PathBuf::from("test.prefab")),
+            ..Default::default()
+        };
+        let result = parse_reader(&mut reader, &mut asset, None);
 
         assert!(result.is_ok());
-        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap())));
-        assert!(asset.dependencies.contains(&Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap())));
-        assert!(asset.dependencies.contains(&Id::Loc("people_panel_people_label".into())));
-        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_hand_raised_label".into())));
-        assert!(asset.dependencies.contains(&Id::Loc("events_host_panel_broadcasting_label".into())));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("people_panel_people_label".into()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into()))));
     }
 }

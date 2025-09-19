@@ -5,13 +5,16 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset::{Asset, AssetType},
+    asset::Asset,
+    asset_type::AssetType,
     parser::ParseError,
     id::Id,
 };
 
 mod roots;
-mod assets;
+mod populate_pass1;
+mod populate_pass2;
+mod populate_pass3;
 
 #[derive(Debug)]
 pub struct DatabaseError {
@@ -64,26 +67,43 @@ impl Database {
         }
     }
 
+    pub fn populate(&mut self) -> Result<(), DatabaseError> {
+        self.populate_pass1_find()?;
+        let broker = self.populate_pass2_resolve()?;
+        self.populate_pass3_link(broker)?;
+        self.populate_reverse_dependencies();
+        Ok(())
+    }
+
     pub fn populate_reverse_dependencies(&mut self) {
+        // loop over a copy of the keys, and take the assets out of the map while we do this
+        // so we can mutate them
         let keys: Vec<Id> = self.assets.keys().cloned().collect();
         for asset_id in keys.iter() {
-            let (id, asset) = match self.assets.remove_entry(asset_id) {
+            let (asset_id, asset) = match self.assets.remove_entry(asset_id) {
                 Some(e) => e,
                 None => continue,
             };
-            for dep_id in &asset.dependencies {
-                let (id, mut dep) = match self.assets.remove_entry(dep_id) {
+
+            // loop over the asset's (forward) relations
+            for relation in asset.relations.iter() {
+                // take the related asset out of the map too
+                let (rel_id, mut rel_asset) = match self.assets.remove_entry(relation.id()) {
                     Some(e) => e,
                     None => {
-                        let mut a = Asset::new(dep_id.clone());
-                        a.asset_type = AssetType::BrokenRef;
-                        (dep_id.clone(), a)
+                        let a = Asset {
+                            id: relation.id().clone(),
+                            asset_type: AssetType::BrokenRef,
+                            ..Default::default()
+                        };
+                        (relation.id().clone(), a)
                     },
                 };
-                dep.dependents.insert(asset_id.clone());
-                self.assets.insert(id, dep);
+                // add the back relation to the related asset
+                rel_asset.back_relations.insert(asset.invert_relation(relation));
+                self.assets.insert(rel_id, rel_asset);
             }
-            self.assets.insert(id, asset);
+            self.assets.insert(asset_id, asset);
         }
     }
 
@@ -95,24 +115,32 @@ impl Database {
         self.loc_roots.iter()
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
-        self.assets.values()
-    }
-
     pub fn asset(&self, id: &Id) -> Option<&Asset> {
         self.assets.get(id)
     }
 
-    pub fn asset_by_name(&self, name: &str) -> Option<&Asset> {
-        for asset in self.assets.values() {
-            if let Some(p) = asset.path.as_ref()
+    pub fn asset_mut(&mut self, id: &Id) -> Option<&mut Asset> {
+        self.assets.get_mut(id)
+    }
+
+    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
+        self.assets.values()
+    }
+
+    pub fn assets_by_name(&self, name: &str) -> impl Iterator<Item = &Asset> {
+        self.assets.values().filter(move |a| {
+            if let Some(p) = a.path.as_ref()
                 && let Some(file_name) = p.file_name()
                 && let Some(name_str) = file_name.to_str()
-                && name_str == name
-            {
-                return Some(asset);
+                && name_str == name {
+                true
             }
-        }
-        None
+            else if let Id::CsType { name: n, .. } = &a.id && n == name {
+                return true;
+            }
+            else {
+                false
+            }
+        })
     }
 }

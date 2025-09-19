@@ -4,13 +4,14 @@ use std::{
     io::BufRead,
 };
 use crate::{
-    asset::{Asset, AssetType},
+    asset::{Asset, Relation},
+    asset_type::AssetType,
     id::Id,
     parser::ParseError,
     util,
 };
 
-pub fn parse_loc_resource(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),
@@ -18,33 +19,35 @@ pub fn parse_loc_resource(asset: &mut Asset, relative_to: Option<&PathBuf>) -> R
 
     let mut reader = match util::read_file_no_bom(path) {
         Ok(file) => file,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to read prefab file: {}", e),
-        }),
+        Err(e) => return Err(ParseError::new(path, format!("Failed to read prefab file: {}", e))),
     };
 
-    parse_loc_resource_reader(&mut reader, asset)
+    parse_reader(&mut reader, asset, relative_to)
 }
 
-fn parse_loc_resource_reader(reader: &mut dyn BufRead, asset: &mut Asset) -> Result<Vec<Asset>, ParseError> {
+fn parse_reader(
+    reader: &mut dyn BufRead, 
+    asset: &mut Asset, 
+    relative_to: Option<&PathBuf>,
+) -> Result<Vec<Asset>, ParseError> {
+    let path = match relative_to {
+        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
+        None => asset.path.as_ref().unwrap(),
+    };
     let locstrings: HashMap<String, String> = match serde_json::from_reader(reader) {
         Ok(map) => map,
-        Err(e) => return Err(ParseError {
-            message: format!("Failed to parse loc resource JSON: {}", e),
-        }),
+        Err(e) => return Err(ParseError::new(path, format!("Failed to parse loc resource JSON: {}", e))),
     };
 
     // Use the parsed locstrings to create Asset instances
-    let mut assets = vec![];
-    for key in locstrings.keys() {
-        let asset = Asset {
+    let assets: Vec<Asset> = locstrings.keys().map(|key| {
+        Asset {
             id: Id::Loc(key.clone()),
             asset_type: AssetType::LocString,
-            dependencies: HashSet::from([asset.id.clone()]),
+            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
             ..Default::default()
-        };
-        assets.push(asset);
-    }
+        }
+    }).collect();
 
     Ok(assets)
 }

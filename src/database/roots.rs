@@ -151,7 +151,10 @@ impl Database {
                 };
                 let name = &name[..pkg_end];
 
-                if dep_path.is_dir() && unresolved.contains(name) {
+                if name.starts_with("com.unity.") {
+                    continue;
+                }
+                else if dep_path.is_dir() && unresolved.contains(name) {
                     unresolved.remove(name);
                     if let Err(e) = self.add_root(dep_path, unresolved) {
                         eprintln!("Warning: Failed to add dependency '{}': {}", name, e);

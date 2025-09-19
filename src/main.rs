@@ -10,12 +10,7 @@ use std::{
     io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{
-    asset::AssetType,
-    database::Database,
-    id::Id,
-    version::DatabaseFile,
-};
+use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id, Relation };
 
 #[derive(Parser)]
 struct CliArgs {
@@ -34,21 +29,27 @@ enum CliCommand {
         #[arg(long, short = 'r', default_value = None, help = "If supplied, make paths in the database relative to this path")]
         relative_to: Option<String>,
     },
-    #[command(about = "Scan all assets in the database to identify their dependencies")]
-    ResolveAssets,
     #[command(about = "Get information about a specific asset by ID or name")]
     Info {
-        #[arg(long, help = "ID of the asset")]
-        id: Option<String>,
+        #[arg(long, help = "GUID of the asset")]
+        guid: Option<Uuid>,
+        #[arg(long, help = "Loc ID of the asset")]
+        loc: Option<String>,
+        #[arg(long, help = "C# declaration name of the asset")]
+        cs: Option<String>,
         #[arg(long, help = "Name of the asset")]
         name: Option<String>,
+        #[arg(long, help = "Show the list of detected package roots")]
+        roots: bool,
     },
     #[command(about = "Find unused assets in the database")]
     FindUnused {
         #[arg(long, help = "Filter by ID type: 'guid' or 'loc'")]
         id_type: Option<OrphanFilter>,
-        #[arg(long, default_value = "false", help = "If true, only print IDs of unused assets")]
+        #[arg(long, default_value = "false", help = "Only print IDs of unused assets")]
         id_only: bool,
+        #[arg(long, default_value = "false", help = "Only print totals")]
+        summarize: bool,
     },
     #[command(about = "Find broken references in the database")]
     FindBrokenRefs {
@@ -61,18 +62,59 @@ enum CliCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum OrphanFilter {
-    Guid,
+    UnityGuid,
     Loc,
+    CsDeclaration,
+}
+
+impl OrphanFilter {
+    pub fn matches(&self, id: &Id) -> bool {
+        match self {
+            OrphanFilter::UnityGuid => match id {
+                Id::Guid(_) => true,
+                _ => false,
+            },
+            OrphanFilter::Loc => match id {
+                Id::Loc(_) => true,
+                _ => false,
+            },
+            OrphanFilter::CsDeclaration => match id {
+                Id::CsType { .. } => true,
+                _ => false,
+            },
+        }
+    }
 }
 
 impl From<String> for OrphanFilter {
     fn from(value: String) -> Self {
         if value.eq_ignore_ascii_case("guid") {
-            OrphanFilter::Guid
+            OrphanFilter::UnityGuid
         } else if value.eq_ignore_ascii_case("loc") {
             OrphanFilter::Loc
         } else {
             panic!("Invalid orphan filter type: {}", value);
+        }
+    }
+}
+
+impl From<&Id> for OrphanFilter {
+    fn from(value: &Id) -> Self {
+        match value {
+            Id::None => panic!("Cannot convert Id::None to OrphanFilter"),
+            Id::Guid(_) => Self::UnityGuid,
+            Id::Loc(_) => Self::Loc,
+            Id::CsType { .. } => Self::CsDeclaration,
+        }
+    }
+}
+
+impl std::fmt::Display for OrphanFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnityGuid => write!(f, "Unity object"),
+            Self::Loc => write!(f, "Localized string"),
+            Self::CsDeclaration => write!(f, "C# declaration"),
         }
     }
 }
@@ -83,14 +125,11 @@ fn main() {
         CliCommand::FindAssets { root_path, relative_to } => {
             find_assets(args.db_path, root_path, relative_to);
         },
-        CliCommand::ResolveAssets => {
-            resolve_assets(args.db_path);
+        CliCommand::Info { guid, loc, cs, name, roots } => {
+            info(&args.db_path, guid, loc, cs, name, roots);
         },
-        CliCommand::Info { id, name } => {
-            info(&args.db_path, id, name);
-        },
-        CliCommand::FindUnused { id_type, id_only } => {
-            find_unused(&args.db_path, id_type, id_only);
+        CliCommand::FindUnused { id_type, id_only, summarize} => {
+            find_unused(&args.db_path, id_type, id_only, summarize);
         },
         CliCommand::FindBrokenRefs { id_type, id_only } => {
             find_broken_refs(&args.db_path, id_type, id_only);
@@ -106,7 +145,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         }
     };
 
-    if let Err(e) = db.find_assets() {
+    if let Err(e) = db.populate() {
         panic!("Error finding assets: {}", e);
     }
 
@@ -118,33 +157,7 @@ fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) 
         .expect(format!("Failed to write database to {db_path}").as_str());
 }
 
-fn resolve_assets(db_path: String) {
-    let file = File::open(&db_path)
-        .expect(format!("Failed to open {db_path}").as_str());
-    let db: DatabaseFile = match rmp_serde::from_read(file) {
-        Ok(db) => {
-            println!("Loaded database from {}", db_path);
-            db
-        },
-        Err(_) => {
-            panic!("Error reading database from {}", db_path);
-        }
-    };
-    let mut db = db.database;
-
-    if let Err(e) = db.resolve_assets() {
-        panic!("Error resolving assets: {}", e);
-    }
-
-    let mut file = File::create(&db_path)
-        .expect(format!("Failed to create {db_path}").as_str());
-    let bin = rmp_serde::to_vec(&DatabaseFile::from(db))
-        .expect("Failed to serialize database");
-    file.write_all(&bin)
-        .expect(format!("Failed to write database to {db_path}").as_str());
-}
-
-fn info(db_path: &str, id: Option<String>, name: Option<String>) {
+fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<String>, name: Option<String>, roots: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -158,14 +171,28 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>) {
     };
     db.populate_reverse_dependencies();
 
-    if let Some(id) = id.as_ref() {
-        let asset = if let Ok(id) = Uuid::parse_str(&id) {
-            db.asset(&Id::Guid(id.clone()))
+    if roots {
+        let mut sorted_roots: Vec<String> = db.roots().iter().map(|r| r.display().to_string()).collect();
+        sorted_roots.sort();
+        for r in &sorted_roots {
+            println!("- {r}");
         }
-        else {
-            db.asset(&Id::Loc(id.clone()))
+    }
+    else if guid.is_some() || loc.is_some() || cs.is_some() {
+        let id = if let Some(guid) = guid {
+            Id::Guid(guid)
+        } else if let Some(loc) = loc {
+            Id::Loc(loc)
+        } else if let Some(cs) = cs {
+            match cs.rsplit_once('.') {
+                Some((namespace, name)) => Id::CsType { name: name.into(), namespace: Some(namespace.into()) },
+                None => Id::CsType { name: cs, namespace: None },
+            }
+        } else {
+            panic!("One of --guid, --loc, or --cs must be provided");
         };
-
+        
+        let asset = db.asset(&id);
         match asset {
             None => {
                 panic!("No asset found with ID: {}", id);
@@ -176,19 +203,22 @@ fn info(db_path: &str, id: Option<String>, name: Option<String>) {
         };
     }
     else if let Some(name) = name {
-        if let Some(asset) = db.asset_by_name(&name) {
+        let mut count = 0;
+        for asset in db.assets_by_name(&name) {
+            count += 1;
             println!("{}", asset.bind(&db));
-        } else {
+        }
+        if count == 0 {
             panic!("No asset found with name: {}", name);
         }
     }
     else {
-        panic!("Either --id or --name must be provided");
+        panic!("One of --name, --guid, --loc, or --cs must be provided");
     }
     
 }
 
-fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool) {
+fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool, summarize: bool) {
     let file = File::open(&db_path)
         .expect(format!("Failed to open {db_path}").as_str());
     let mut db: Database = match rmp_serde::from_read(file) {
@@ -204,32 +234,35 @@ fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool) {
     db.populate_reverse_dependencies();
 
     let mut orphans = HashMap::new();
-    let mut broken_refs = HashMap::new();
+    let mut types: HashMap<OrphanFilter, usize> = HashMap::new();
     for asset in db.assets() {
-        if let Some(id_type) = id_type {
-            if id_type == OrphanFilter::Guid && let Id::Loc(_) = asset.id {
-                continue;
-            }
-            if id_type == OrphanFilter::Loc && let Id::Guid(_) = asset.id {
-                continue;
-            }
+        if let Some(id_type) = id_type && !id_type.matches(&asset.id) {
+            continue;
         }
 
-        if asset.dependents.len() == 0 {
+        if asset.relations_iter().all(|r| !matches!(r, Relation::UsedBy(_))) {
             orphans.insert(asset.id.clone(), asset);
-        }
-        if asset.asset_type == AssetType::BrokenRef {
-            broken_refs.insert(asset.id.clone(), asset);
+
+            let type_class: OrphanFilter = (&asset.id).into();
+            let count = types.get(&type_class).unwrap_or(&0);
+            types.insert(type_class, count + 1);
         }
     }
 
     println!("Unused assets ({}):", orphans.len());
-    for asset in orphans.values() {
-        if id_only {
-            println!("{}", asset.id);
+    if summarize {
+        for (t, count) in &types {
+            println!("  {t}: {count}");
         }
-        else {
-            println!("{}", asset.bind(&db).indent());
+    }
+    else {
+        for asset in orphans.values() {
+            if id_only {
+                println!("{}", asset.id);
+            }
+            else {
+                println!("{}", asset.bind(&db).indent());
+            }
         }
     }
     if orphans.is_empty() {
@@ -255,7 +288,7 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool)
     let mut broken_refs = HashMap::new();
     for asset in db.assets() {
         if let Some(id_type) = id_type {
-            if id_type == OrphanFilter::Guid && let Id::Loc(_) = asset.id {
+            if id_type == OrphanFilter::UnityGuid && let Id::Loc(_) = asset.id {
                 continue;
             }
             if id_type == OrphanFilter::Loc && let Id::Guid(_) = asset.id {

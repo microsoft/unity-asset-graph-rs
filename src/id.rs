@@ -1,23 +1,24 @@
+use std::fmt::{Display, Formatter, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Serialize, Deserialize, Default)]
 pub enum Id {
+    #[default]
+    None,
     Guid(Uuid),
     Loc(String),
+    CsType { name: String, namespace: Option<String> },
 }
 
-impl Default for Id {
-    fn default() -> Self {
-        Id::Guid(Uuid::nil())
-    }
-}
-
-impl std::fmt::Display for Id {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
-            Id::Guid(uuid) => write!(f, "guid:{}", uuid),
-            Id::Loc(name) => write!(f, "loc:{}", name),
+            Self::None => write!(f, "<no id>"),
+            Self::Guid(uuid) => write!(f, "guid:{}", uuid),
+            Self::Loc(name) => write!(f, "loc:{}", name),
+            Self::CsType { name, namespace: Some(ns) } => write!(f, "cs_type:{ns}.{name}"),
+            Self::CsType { name, namespace: None } => write!(f, "cs_type:{}", name),
         }
     }
 }
