@@ -1,5 +1,5 @@
 [package]
-name = "asset-graph-rs"
+name = "unity-asset-graph"
 version = "0.1.0"
 edition = "2024"
 

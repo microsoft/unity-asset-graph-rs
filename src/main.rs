@@ -10,7 +10,7 @@ use std::{
     io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id, Relation };
+use unity_asset_graph::{ AssetType, Database, DatabaseFile, Id, Relation };
 
 #[derive(Parser)]
 struct CliArgs {
