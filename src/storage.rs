@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use std::{fs::File, path::Path, error::Error, io::Write};
 use crate::database::Database;
 
 const MAGIC_BYTE: u8 = 0xae;
@@ -59,5 +60,21 @@ impl From<Database> for DatabaseFile {
             version: Version::try_from(SER_VERSION).unwrap(),
             database,
         }
+    }
+}
+
+impl DatabaseFile {
+    pub fn save(&self, db_path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create(&db_path)?;
+        let bin = rmp_serde::to_vec(self)?;
+        file.write_all(&bin)?;
+        Ok(())
+    }
+
+    pub fn load(db_path: impl AsRef<Path>) -> Result<Self, Box<dyn Error>> {
+        let file = std::fs::read(&db_path)?;
+        let mut db_file: DatabaseFile = rmp_serde::from_slice(&file)?;
+        db_file.database.populate_reverse_dependencies();
+        Ok(db_file)
     }
 }

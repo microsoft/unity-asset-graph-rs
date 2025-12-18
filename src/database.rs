@@ -61,10 +61,7 @@ impl Database {
             assets: HashMap::new(),
         };
 
-        match db.add_root_str(root) {
-            Ok(_) => Ok(db),
-            Err(e) => Err(e),
-        }
+        db.add_root_str(root).map(|_| db)
     }
 
     pub fn populate(&mut self) -> Result<(), DatabaseError> {

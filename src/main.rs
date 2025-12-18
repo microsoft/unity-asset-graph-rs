@@ -5,12 +5,13 @@ use clap::{
     arg
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    path::PathBuf,
     fs::File,
     io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{ AssetType, Database, DatabaseFile, Id, Relation };
+use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation };
 
 #[derive(Parser)]
 struct CliArgs {
@@ -39,6 +40,8 @@ enum CliCommand {
         cs: Option<String>,
         #[arg(long, help = "Name of the asset")]
         name: Option<String>,
+        #[arg(long, help = "Path of the asset")]
+        path: Option<String>,
         #[arg(long, help = "Show the list of detected package roots")]
         roots: bool,
     },
@@ -58,6 +61,15 @@ enum CliCommand {
         #[arg(long, default_value = "false", help = "If true, only print IDs of broken references")]
         id_only: bool,
     },
+    #[command(about = "Find references to assets outside of the folders")]
+    FindOutsideRefs {
+        #[arg(long, help = "Search for scripts within this container asset")]
+        container_id: Option<Uuid>,
+        #[arg(long, help = "Search for scripts within this container asset")]
+        container_path: Option<String>,
+        #[arg(long, help = "Ignore these paths")]
+        ignore_paths: Vec<String>,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,8 +137,8 @@ fn main() {
         CliCommand::FindAssets { root_path, relative_to } => {
             find_assets(args.db_path, root_path, relative_to);
         },
-        CliCommand::Info { guid, loc, cs, name, roots } => {
-            info(&args.db_path, guid, loc, cs, name, roots);
+        CliCommand::Info { guid, loc, cs, name, path, roots } => {
+            info(&args.db_path, guid, loc, cs, name, path, roots);
         },
         CliCommand::FindUnused { id_type, id_only, summarize} => {
             find_unused(&args.db_path, id_type, id_only, summarize);
@@ -134,42 +146,26 @@ fn main() {
         CliCommand::FindBrokenRefs { id_type, id_only } => {
             find_broken_refs(&args.db_path, id_type, id_only);
         },
+        CliCommand::FindOutsideRefs { container_id, container_path, ignore_paths } => {
+            find_outside_refs(&args.db_path, container_id, container_path, ignore_paths);
+        }
     }
 }
 
 fn find_assets(db_path: String, root_path: String, relative_to: Option<String>) {
-    let mut db = match Database::new(&root_path, relative_to.as_deref()) {
-        Ok(db) => db,
-        Err(e) => {
-            panic!("Error initializing database: {}", e);
-        }
-    };
+    let mut db = Database::new(&root_path, relative_to.as_deref()).expect("Error initializing database");
 
     if let Err(e) = db.populate() {
         panic!("Error finding assets: {}", e);
     }
 
-    let mut file = File::create(&db_path)
-        .expect(format!("Failed to create {db_path}").as_str());
-    let bin = rmp_serde::to_vec(&DatabaseFile::from(db))
-        .expect("Failed to serialize database");
-    file.write_all(&bin)
-        .expect(format!("Failed to write database to {db_path}").as_str());
+    DatabaseFile::from(db).save(db_path).expect("Error saving database file");
 }
 
-fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<String>, name: Option<String>, roots: bool) {
-    let file = File::open(&db_path)
-        .expect(format!("Failed to open {db_path}").as_str());
-    let mut db: Database = match rmp_serde::from_read(file) {
-        Ok(db) => {
-            println!("Loaded database from {}", db_path);
-            db
-        },
-        Err(_) => {
-            panic!("Error reading database from {}", db_path);
-        }
-    };
-    db.populate_reverse_dependencies();
+fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<String>, name: Option<String>, path: Option<String>, roots: bool) {
+    let db = DatabaseFile::load(db_path)
+        .expect(format!("Failed to load database file from {}", db_path).as_str())
+        .database;
 
     if roots {
         let mut sorted_roots: Vec<String> = db.roots().iter().map(|r| r.display().to_string()).collect();
@@ -212,6 +208,14 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
             panic!("No asset found with name: {}", name);
         }
     }
+    else if let Some(path) = path {
+        let pathbuf = Some(PathBuf::from(path));
+        if let Some(a) = db.assets().find(|a| a.path.as_ref() == pathbuf.as_ref()) {
+            println!("{}", a.bind(&db));
+        } else {
+            panic!("No asset found with path: {}", pathbuf.as_ref().unwrap().display());
+        }
+    }
     else {
         panic!("One of --name, --guid, --loc, or --cs must be provided");
     }
@@ -219,19 +223,9 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
 }
 
 fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool, summarize: bool) {
-    let file = File::open(&db_path)
-        .expect(format!("Failed to open {db_path}").as_str());
-    let mut db: Database = match rmp_serde::from_read(file) {
-        Ok(db) => {
-            println!("Loaded database from {}", db_path);
-            db
-        },
-        Err(_) => {
-            panic!("Error reading database from {}", db_path);
-        }
-    };
-    
-    db.populate_reverse_dependencies();
+    let db = DatabaseFile::load(db_path)
+        .expect(format!("Failed to load database file from {}", db_path).as_str())
+        .database;
 
     let mut orphans = HashMap::new();
     let mut types: HashMap<OrphanFilter, usize> = HashMap::new();
@@ -271,19 +265,9 @@ fn find_unused(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool, summ
 }
 
 fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool) {
-    let file = File::open(&db_path)
-        .expect(format!("Failed to open {db_path}").as_str());
-    let mut db: Database = match rmp_serde::from_read(file) {
-        Ok(db) => {
-            println!("Loaded database from {}", db_path);
-            db
-        },
-        Err(_) => {
-            panic!("Error reading database from {}", db_path);
-        }
-    };
-    
-    db.populate_reverse_dependencies();
+    let db = DatabaseFile::load(db_path)
+        .expect(format!("Failed to load database file from {}", db_path).as_str())
+        .database;
 
     let mut broken_refs = HashMap::new();
     for asset in db.assets() {
@@ -312,5 +296,81 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool)
     }
     if broken_refs.is_empty() {
         println!("No broken references found.");
+    }
+}
+
+fn find_outside_refs(db_path: &str, container_id: Option<Uuid>, container_path: Option<String>, ignore_paths: Vec<String>) {
+    let db = DatabaseFile::load(db_path)
+        .expect(format!("Failed to load database file from {}", db_path).as_str())
+        .database;
+
+    let root = if let Some(id) = container_id {
+        db.asset(&Id::Guid(id))
+            .expect("Container asset with specified ID not found")
+    } else if let Some(path) = container_path {
+        let pathbuf = Some(PathBuf::from(path));
+        if let Some(a) = db.assets().find(|a| a.path.as_ref() == pathbuf.as_ref()) {
+            a
+        } else {
+            panic!("No asset found with path: {}", pathbuf.as_ref().unwrap().display());
+        }
+    } else {
+        panic!("Either container_id or container_name must be provided");
+    };
+
+    let mut inside_scripts = HashSet::new();
+    find_contained(&db, root, &|a| matches!(a.asset_type, AssetType::CsType), &mut inside_scripts);
+
+    let mut outside_scripts = HashMap::new();
+    for script_id in inside_scripts.iter() {
+        let script_asset = db.asset(script_id).expect("Script asset not found");
+        for relation in script_asset.relations_iter() {
+            if let Relation::Uses(id @ Id::CsType { .. }) = relation
+                && !inside_scripts.contains(id) {
+                outside_scripts.insert(id.clone(), db.asset(id).expect("Outside script asset not found").clone());
+            }
+        }
+    }
+
+    for outside in outside_scripts.values_mut() {
+        outside.relations = outside.relations.iter()
+            .filter(|r| {
+                if let Relation::UsedBy(id) = r {
+                    inside_scripts.contains(id)
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
+    }
+
+    println!("Outside references ({}):", outside_scripts.len());
+    for asset in outside_scripts.values() {
+        let mut ignore = false;
+        if !ignore_paths.is_empty() {
+            if let Some(p) = &asset.path {
+                for ip in &ignore_paths {
+                    if p.display().to_string().contains(ip) {
+                        ignore = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !ignore {
+            println!("{}", asset.bind(&db).indent());
+        }
+    }
+}
+
+fn find_contained(db: &Database, asset: &Asset, condition: &impl Fn(&Asset) -> bool, results: &mut HashSet<Id>) {
+    if condition(asset) {
+        results.insert(asset.id.clone());
+    }
+    for relation in asset.relations_iter() {
+        if let Relation::Contains(other) = relation {
+            find_contained(db, db.asset(other).expect("Contained asset not found"), condition, results);
+        }
     }
 }
