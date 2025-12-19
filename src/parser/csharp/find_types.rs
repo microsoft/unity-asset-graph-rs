@@ -10,11 +10,7 @@ use tree_sitter::{
     Tree,
 };
 use crate::{
-    Asset, 
-    AssetType, 
-    Id, 
-    parser::{ParseError, TypeBroker}, 
-    Relation,
+    Asset, AssetType, Id, Relation, parser::{ParseError, QualifiedName, TypeBroker}
 };
 
 const EXCLUDED_NS: [&str; 3] = [
@@ -25,19 +21,7 @@ const EXCLUDED_NS: [&str; 3] = [
 
 struct TypeInfo<'a> {
     node: Node<'a>,
-    name: String,
-    namespace: Option<String>,
-}
-
-impl<'a> std::convert::Into<String> for TypeInfo<'a> {
-    fn into(self) -> String {
-        if let Some(ns) = self.namespace {
-            format!("{ns}.{}", self.name)
-        }
-        else {
-            self.name
-        }
-    }
+    name: QualifiedName,
 }
 
 static USING_QUERY: LazyLock<Query> = LazyLock::new(|| {
@@ -55,6 +39,7 @@ static USING_QUERY: LazyLock<Query> = LazyLock::new(|| {
     ).expect("Failed to compile using query")
 });
 
+/// Find type declarations and usages in the given syntax tree, updating the provided asset and type broker accordingly.
 pub fn find_types(
     tree: &Tree, 
     buffer: &[u8], 
@@ -62,22 +47,22 @@ pub fn find_types(
     def_assets: &mut Vec<Asset>, 
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<(), ParseError> {
+    // included namespaces from using directives
     let mut usings = vec![];
+    // included type aliases, i.e. `using X = F.Q.N;`
     let mut aliases = HashMap::new();
 
+    // first, gather using directives
     let mut q = QueryCursor::new();
     let mut iter = q.matches(&USING_QUERY, tree.root_node(), buffer);
     'a: while let Some(m) = iter.next() {
+        // this using directive defines an alias
         if let Some(alias) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("alias").unwrap()).next()
         && let Some(fqn_node) = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap()).next() {
             let fqn = fqn_node.utf8_text(buffer).unwrap();
-            if let Some((namespace, name)) = fqn.rsplit_once(".") {
-                aliases.insert(alias, Id::CsType { name: name.into(), namespace: Some(namespace.into()) });
-            }
-            else {
-                aliases.insert(alias, Id::CsType { name: fqn.into(), namespace: None });
-            }
+            aliases.insert(alias, Id::CsType(QualifiedName::from_parts(fqn.split('.').rev())));
         }
+        // this using directive is a normal namespace import
         else {
             let text = m.nodes_for_capture_index(USING_QUERY.capture_index_for_name("type").unwrap())
                 .next()
@@ -90,35 +75,38 @@ pub fn find_types(
                     break 'a;
                 }
             }
-            usings.push(text.into());
+            usings.push(QualifiedName::from_parts(text.split('.').rev()));
         }
     }
 
+    // loop over each type declaration and create a sub-asset for it
     let decls = find_declarations(tree, buffer);
     for decl in &decls {
         let a = Asset {
-            id: Id::CsType { name: decl.name.clone(), namespace: decl.namespace.clone() },
+            id: Id::CsType(decl.name.clone()),
             path: None,
             asset_type: AssetType::CsType,
             relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
             ..Default::default()
         };
 
+        // find all other types used by the declared type
         for usage in find_usages(decl.node, buffer) {
+            // the usage matches a known alias
             if let Some(t) = aliases.get(&usage) {
                 broker.lock().unwrap().request_known(&a.id, t);
-            }
-            else if usage.kind() == "qualified_name" {
-                broker.lock().unwrap().request_known(&a.id, &resolve_qualified_name(usage, buffer))
-            }
-            else {
+            } else {
+                // add the containing type's namespaces to the using list
                 let mut usings = usings.clone();
-                if let Some(n) = &decl.namespace {
-                    usings.push(n.clone())
+                let mut ns = decl.name.clone();
+                while !ns.is_global() {
+                    usings.push(ns.clone());
+                    ns = ns.namespace();
                 }
-                let text = usage.utf8_text(buffer).unwrap();
-                if text != decl.name {
-                    broker.lock().unwrap().request(&a.id, text, &usings);
+
+                let name = resolve_qualified_name(usage, buffer);
+                if name != decl.name {
+                    broker.lock().unwrap().request(&a.id, name, &usings);
                 }
             }
         }
@@ -131,15 +119,13 @@ pub fn find_types(
 
 /// Query to find class, struct, enum, and interface declarations.
 /// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
-static CSOBJ_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-[
-    (class_declaration)
-    (struct_declaration)
-    (enum_declaration)
-    (interface_declaration)
-] @decl"#
-    ).expect("Failed to compile class query")
+static DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    Query::new(&super::CS_LANG, "(type_declaration) @decl").expect("Failed to compile class query")
+});
+static DECL_SUBTYPES: LazyLock<Vec<&str>> = LazyLock::new(|| {
+    super::CS_LANG.subtypes_for_supertype(
+        super::CS_LANG.id_for_node_kind("type_declaration", true),
+    ).iter().map(|k| super::CS_LANG.node_kind_for_id(*k).unwrap()).collect()
 });
 
 fn find_declarations<'a, 'b>(
@@ -150,35 +136,30 @@ fn find_declarations<'a, 'b>(
 
     // loop over all type declarations
     let mut q = QueryCursor::new();
-    let mut iter = q.matches(&CSOBJ_QUERY, tree.root_node(), buffer);
+    let mut iter = q.matches(&DECL_QUERY, tree.root_node(), buffer);
     while let Some(m) = iter.next() {
-        let (name, namespace) = resolve_declaration(m.captures[0].node, buffer);
         decls.push(TypeInfo {
             node: m.captures[0].node,
-            name,
-            namespace,
+            name: resolve_declaration(m.captures[0].node, buffer),
         });
     }
     decls
 }
 
 /// Walk up from the decl identifier node to find the full name and namespace.
-fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> (String, Option<String>) {
+fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
     let mut name_parts = vec![];
     let mut node = Some(decl_node);
-    while let Some(n) = node && n.kind() != "namespace_declaration" {
-        if let "class_declaration" | "struct_declaration" | "enum_declaration" | "interface_declaration" = n.kind() {
-            name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap())
-        }
-        node = n.parent();
-    }
-
-    let mut ns_parts: Vec<&str> = vec![];
+    let mut parts = vec![];
     while let Some(n) = node && n.kind() != "compilation_unit" {
-        if n.kind() == "namespace_declaration" {
-            ns_parts.push(
-                n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-            );
+        parts.push(n.kind());
+        if DECL_SUBTYPES.contains(&n.kind()) {
+            name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap());
+        } else if n.kind() == "namespace_declaration" {
+            let ns = n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
+            for part in ns.split('.').rev() {
+                name_parts.push(part);
+            }
         }
         node = n.parent();
     }
@@ -186,23 +167,51 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> (String, Option<String
     if let Some(root) = node {
         for child in root.children(&mut root.walk()) {
             if child.kind() == "file_scoped_namespace_declaration" {
-                ns_parts.push(
-                    child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
-                );
+                let ns = child.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
+                for part in ns.split('.').rev() {
+                    name_parts.push(part);
+                }
             }
         }
     }
 
-    let name = name_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
-    let ns = ns_parts.iter().rev().cloned().collect::<Vec<&str>>().join(".");
-    (name, if ns_parts.is_empty() { None } else { Some(ns) })
+    if name_parts.is_empty() {
+        println!("{DECL_SUBTYPES:?}");
+        println!("{parts:?}");
+        _debug(decl_node, buffer);
+        panic!("Failed to resolve declaration name");
+    }
+
+    QualifiedName::from_parts(name_parts.into_iter())
 }
 
 static USAGE_QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&super::CS_LANG, r#"
-(type) @type
-"#
-    ).expect("Failed to compile usage query")
+        [
+            (type/identifier) @type
+            (type/generic_name) @type
+            (type/qualified_name
+                qualifier: [(identifier) (qualified_name) (generic_name)]
+            ) @type
+            (type/tuple_type
+                (tuple_element
+                    type: [(identifier) (qualified_name) (generic_name)] @type
+                )
+            )
+            (type/scoped_type
+                type: [(identifier) (qualified_name) (generic_name)] @type
+            )
+            (type/array_type 
+                type: [(identifier) (qualified_name) (generic_name)] @type
+            )
+            (type/nullable_type 
+                type: [(identifier) (qualified_name) (generic_name)] @type
+            )
+            (type/ref_type 
+                type: [(identifier) (qualified_name) (generic_name)] @type
+            )
+        ]
+    "#).expect("Failed to compile usage query")
 });
 
 fn find_usages<'a>(
@@ -215,32 +224,53 @@ fn find_usages<'a>(
     let mut iter = qcursor.matches(&USAGE_QUERY, node, buffer);
     while let Some(m) = iter.next() {
         let n = m.captures[0].node;
-        if n != node && n.kind() != "predefined_type" {
-            usages.push(n);
+        if n == node {
+            continue;
         }
+
+        if let Ok(text) = n.utf8_text(buffer) && text.ends_with("SelectorClosedWithItems") {
+            _debug(n, buffer);
+        }
+        
+        usages.push(n);
     }
     usages
 }
 
-fn resolve_qualified_name(node: Node, buffer: &[u8]) -> Id {
-    if node.kind() != "qualified_name" {
-        panic!();
+fn resolve_qualified_name(node: Node, buffer: &[u8]) -> QualifiedName {
+    match node.kind() {
+        "identifier" => {
+            QualifiedName::from(node.utf8_text(buffer).unwrap())
+        },
+        "qualified_name" => {
+            QualifiedName::from_name(
+                node.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap(),
+                resolve_qualified_name(node.child_by_field_name("qualifier").unwrap(), buffer),
+            )
+        },
+        "generic_name" => {
+            let id = node.named_child(0).unwrap().utf8_text(buffer).unwrap();
+            let args = node.named_child(1).unwrap().named_child_count();
+            QualifiedName::from(format!("{id}<{args}>"))
+        },
+        _ => {
+            _debug(node, buffer);
+            panic!("Unexpected node kind in type usage: {}", node.kind());
+        }
     }
-
-    let name = node.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap();
-    let ns = node.child_by_field_name("qualifier").unwrap().utf8_text(buffer).unwrap();
-    Id::CsType { name: name.into(), namespace: Some(ns.into()) }
 }
 
 fn _debug(node: Node, buffer: &[u8]) {
     let mut n = Some(node);
     while let Some(node) = n {
-        if node.end_byte() - node.start_byte() < 100 {
-            println!("{}: {}", node.kind(), node.utf8_text(&buffer).unwrap());
+        let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
+        if text.len() < 100 {
+            println!("{}: {}", node.kind(), text);
         }
         else {
-            println!("{}: <{} bytes>", node.kind(), node.end_byte() - node.start_byte());
+            println!("{}: {}...<{} bytes>", node.kind(), &text[..100], node.end_byte() - node.start_byte() - 100);
         }
         n = node.parent();
     }
+    println!();
 }

@@ -1,17 +1,13 @@
 use clap::{
-    command,
     Parser,
     Subcommand,
-    arg
 };
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
-    fs::File,
-    io::Write,
 };
 use uuid::Uuid;
-use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation };
+use asset_graph_rs::{Asset, AssetType, Database, DatabaseFile, Id, Relation, QualifiedName};
 
 #[derive(Parser)]
 struct CliArgs {
@@ -61,13 +57,13 @@ enum CliCommand {
         #[arg(long, default_value = "false", help = "If true, only print IDs of broken references")]
         id_only: bool,
     },
-    #[command(about = "Find references to assets outside of the folders")]
+    #[command(about = "Find references to assets outside of the given folders")]
     FindOutsideRefs {
-        #[arg(long, help = "Search for scripts within this container asset")]
-        container_id: Option<Uuid>,
-        #[arg(long, help = "Search for scripts within this container asset")]
-        container_path: Option<String>,
-        #[arg(long, help = "Ignore these paths")]
+        #[arg(long, short = 'i', help = "Search for scripts within this container asset")]
+        container_id: Vec<Uuid>,
+        #[arg(long, short = 'p', help = "Search for scripts within this container asset")]
+        container_path: Vec<String>,
+        #[arg(long, short = 'x', help = "Ignore these paths")]
         ignore_paths: Vec<String>,
     }
 }
@@ -180,10 +176,7 @@ fn info(db_path: &str, guid: Option<Uuid>, loc: Option<String>, cs: Option<Strin
         } else if let Some(loc) = loc {
             Id::Loc(loc)
         } else if let Some(cs) = cs {
-            match cs.rsplit_once('.') {
-                Some((namespace, name)) => Id::CsType { name: name.into(), namespace: Some(namespace.into()) },
-                None => Id::CsType { name: cs, namespace: None },
-            }
+            Id::CsType(QualifiedName::from(cs))
         } else {
             panic!("One of --guid, --loc, or --cs must be provided");
         };
@@ -299,78 +292,119 @@ fn find_broken_refs(db_path: &str, id_type: Option<OrphanFilter>, id_only: bool)
     }
 }
 
-fn find_outside_refs(db_path: &str, container_id: Option<Uuid>, container_path: Option<String>, ignore_paths: Vec<String>) {
+fn find_outside_refs(db_path: &str, container_id: Vec<Uuid>, container_path: Vec<String>, ignore_paths: Vec<String>) {
     let db = DatabaseFile::load(db_path)
         .expect(format!("Failed to load database file from {}", db_path).as_str())
         .database;
 
-    let root = if let Some(id) = container_id {
-        db.asset(&Id::Guid(id))
-            .expect("Container asset with specified ID not found")
-    } else if let Some(path) = container_path {
+    let mut roots = vec![];
+    for id in container_id {
+        let root = db.asset(&Id::Guid(id))
+            .expect("Container asset with specified ID not found");
+        roots.push(root);
+    }
+    for path in container_path {
         let pathbuf = Some(PathBuf::from(path));
         if let Some(a) = db.assets().find(|a| a.path.as_ref() == pathbuf.as_ref()) {
-            a
+            roots.push(a);
         } else {
             panic!("No asset found with path: {}", pathbuf.as_ref().unwrap().display());
         }
-    } else {
-        panic!("Either container_id or container_name must be provided");
-    };
-
-    let mut inside_scripts = HashSet::new();
-    find_contained(&db, root, &|a| matches!(a.asset_type, AssetType::CsType), &mut inside_scripts);
-
-    let mut outside_scripts = HashMap::new();
-    for script_id in inside_scripts.iter() {
-        let script_asset = db.asset(script_id).expect("Script asset not found");
-        for relation in script_asset.relations_iter() {
-            if let Relation::Uses(id @ Id::CsType { .. }) = relation
-                && !inside_scripts.contains(id) {
-                outside_scripts.insert(id.clone(), db.asset(id).expect("Outside script asset not found").clone());
-            }
-        }
+    }
+    if roots.is_empty() {
+        panic!("At least one container asset must be specified via --container-id or --container-path");
     }
 
-    for outside in outside_scripts.values_mut() {
-        outside.relations = outside.relations.iter()
-            .filter(|r| {
-                if let Relation::UsedBy(id) = r {
-                    inside_scripts.contains(id)
-                } else {
-                    false
-                }
-            })
-            .cloned()
-            .collect();
+    let mut inside_scripts = HashMap::new();
+    for root in &roots {
+        find_contained(&db, root, &mut inside_scripts, &|a| matches!(a.asset_type, AssetType::CsType));
+    }
+
+    let mut outside_scripts = HashMap::new();
+    for asset in inside_scripts.values() {
+        for relation in asset.relations_iter() {
+            if let Relation::Uses(id @ Id::CsType { .. }) = relation
+                && !inside_scripts.contains_key(id) {
+                outside_scripts.insert(id.clone(), db.asset(id).expect("Outside script asset not found"));
+            }
+        }
     }
 
     println!("Outside references ({}):", outside_scripts.len());
-    for asset in outside_scripts.values() {
-        let mut ignore = false;
-        if !ignore_paths.is_empty() {
-            if let Some(p) = &asset.path {
-                for ip in &ignore_paths {
-                    if p.display().to_string().contains(ip) {
-                        ignore = true;
-                        break;
-                    }
+    for outside in outside_scripts.values() {
+        let container = find_container(&db, outside, &|a| matches!(a.asset_type, AssetType::CsFile))
+            .and_then(|a| a.path.as_ref());
+
+        let name = if let Id::CsType(name) = &outside.id {
+            name.local()
+        } else {
+            panic!("Expected CsType asset");
+        };
+
+        if let Some(c) = container {
+            if ignore_paths.iter().any(|p| c.starts_with(p)) {
+                continue;
+            }
+            println!("- {} ({})", c.display(), name);
+        } else {
+            println!("- <no container> ({})", name);
+        }
+
+        let users: Vec<&Asset> = outside.relations_iter()
+            .filter_map(|r| {
+                if let Relation::UsedBy(id) = r && inside_scripts.contains_key(id) {
+                    db.asset(id)
+                } else {
+                    None
                 }
+            }).collect();
+
+        println!("  Used by: ({})", users.len());
+
+        for user in users {
+            let container = find_container(&db, user, &|a| matches!(a.asset_type, AssetType::CsFile))
+                .and_then(|a| a.path.as_ref());
+
+            let name = if let Id::CsType(name) = &user.id {
+                name.local()
+            } else {
+                panic!("Expected CsType asset");
+            };
+
+            if let Some(c) = container {
+                println!("    {} ({})", c.display(), name);
+            } else {
+                println!("    <no container> ({})", name);
             }
         }
-        if !ignore {
-            println!("{}", asset.bind(&db).indent());
+
+        println!();
+    }
+}
+
+fn find_contained<'a>(db: &'a Database, asset: &'a Asset, results: &mut HashMap<Id, &'a Asset>, condition: &impl Fn(&Asset) -> bool) {
+    if condition(asset) {
+        results.insert(asset.id.clone(), asset);
+    }
+    for relation in asset.relations_iter() {
+        if let Relation::Contains(other) = relation
+            && let Some(other) = db.asset(other) {
+            find_contained(db, other, results, condition);
         }
     }
 }
 
-fn find_contained(db: &Database, asset: &Asset, condition: &impl Fn(&Asset) -> bool, results: &mut HashSet<Id>) {
-    if condition(asset) {
-        results.insert(asset.id.clone());
-    }
+fn find_container<'a>(db: &'a Database, asset: &Asset, condition: &impl Fn(&Asset) -> bool) -> Option<&'a Asset> {
     for relation in asset.relations_iter() {
-        if let Relation::Contains(other) = relation {
-            find_contained(db, db.asset(other).expect("Contained asset not found"), condition, results);
+        if let Relation::ContainedBy(other) = relation
+            && let Some(other) = db.asset(other) {
+            if condition(other) {
+                return Some(other);
+            }
+            else if let Some(found) = find_container(db, other, condition) {
+                return Some(found);
+            }
         }
     }
+    None
 }

@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::parser::QualifiedName;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Serialize, Deserialize, Default)]
 pub enum Id {
@@ -8,7 +9,8 @@ pub enum Id {
     None,
     Guid(Uuid),
     Loc(String),
-    CsType { name: String, namespace: Option<String> },
+    /// A C# type identified by its full name parts in reverse order (e.g. ["MyClass", "MyNamespace"])
+    CsType(QualifiedName),
 }
 
 impl Display for Id {
@@ -17,8 +19,7 @@ impl Display for Id {
             Self::None => write!(f, "<no id>"),
             Self::Guid(uuid) => write!(f, "guid:{}", uuid),
             Self::Loc(name) => write!(f, "loc:{}", name),
-            Self::CsType { name, namespace: Some(ns) } => write!(f, "cs_type:{ns}.{name}"),
-            Self::CsType { name, namespace: None } => write!(f, "cs_type:{}", name),
+            Self::CsType(name) => write!(f, "cs_type:{name}"),
         }
     }
 }

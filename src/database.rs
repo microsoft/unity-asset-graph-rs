@@ -5,10 +5,7 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{
-    asset::Asset,
-    asset_type::AssetType,
-    parser::ParseError,
-    id::Id,
+    asset::Asset, asset_type::AssetType, id::Id, parser::ParseError,
 };
 
 mod roots;
@@ -132,8 +129,8 @@ impl Database {
                 && name_str == name {
                 true
             }
-            else if let Id::CsType { name: n, .. } = &a.id && n == name {
-                return true;
+            else if let Id::CsType(a_name) = &a.id && a_name.local() == name {
+                true
             }
             else {
                 false

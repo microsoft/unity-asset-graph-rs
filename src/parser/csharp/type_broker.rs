@@ -1,50 +1,47 @@
 use std::collections::HashSet;
-use crate::{Database, Id, Relation};
+use crate::{Database, Id, Relation, parser::QualifiedName};
 
+/// A reference to a type within the file being parsed. May be locally declared, fully qualified, or ambiguous and need brokering.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct TypeRequest {
+    /// The asset that uses the type
     requester: Id,
-    type_name: String,
-    scoped_namespaces: Vec<String>,
-    known: bool,
+    /// The un- or partially-qualified name of the type being requested from the broker
+    partial_name: QualifiedName,
+    /// The namespaces in scope during the reference
+    scoped_namespaces: Vec<QualifiedName>,
+    /// Indicates that the given type is already fully qualified, and does not need namespace brokering
+    fully_qualified: bool,
 }
 
 impl TypeRequest {
-    pub fn new(requester: &Id, type_name: &str, scoped_namespaces: &Vec<String>, known: bool) -> Self {
+    pub fn new(requester: &Id, name: QualifiedName, scoped_namespaces: &[QualifiedName], fully_qualified: bool) -> Self {
         Self {
             requester: requester.clone(),
-            type_name: type_name.into(),
-            scoped_namespaces: scoped_namespaces.clone(),
-            known,
+            partial_name: name.into(),
+            scoped_namespaces: scoped_namespaces.to_vec(),
+            fully_qualified,
         }
     }
 
+    /// Determines if the given type ID satisfies this type request.
     pub fn satisfied_by(&self, type_id: &Id) -> bool {
-        if let Id::CsType { name, namespace } = type_id {
-            if &self.type_name != name {
-                return false;
+        if let Id::CsType(fqn) = type_id {
+            if let Some(ns) = fqn.without_local(&self.partial_name) {
+                self.scoped_namespaces.contains(&ns)
+            } else {
+                false
             }
-            if let Some(ns) = namespace {
-                if self.scoped_namespaces.iter().any(|s| s == ns) {
-                    return true;
-                }
-            } else if self.scoped_namespaces.is_empty() {
-                return true;
-            }
+        } else {
+            false
         }
-        false
     }
 }
 
-impl std::convert::Into<Id> for TypeRequest {
-    fn into(mut self) -> Id {
-        if self.known {
-            if let Some(ns) = self.scoped_namespaces.pop() {
-                Id::CsType { name: self.type_name, namespace: Some(ns) }
-            }
-            else {
-                Id::CsType { name: self.type_name, namespace: None }
-            }
+impl Into<Id> for TypeRequest {
+    fn into(self) -> Id {
+        if self.fully_qualified {
+            Id::CsType(self.partial_name)
         }
         else {
             panic!()
@@ -52,6 +49,7 @@ impl std::convert::Into<Id> for TypeRequest {
     }
 }
 
+/// A broker for managing type references during parsing. Tracks which types are declared and which are referenced.
 pub struct TypeBroker {
     requests: HashSet<TypeRequest>,
 }
@@ -63,16 +61,16 @@ impl TypeBroker {
         }
     }
 
-    pub fn request(&mut self, requester: &Id, type_name: &str, scoped_namespaces: &Vec<String>) {
+    pub fn request(&mut self, requester: &Id, type_name: QualifiedName, scoped_namespaces: &[QualifiedName]) {
         self.requests.insert(TypeRequest::new(requester, type_name, scoped_namespaces, false));
     }
 
     pub fn request_known(&mut self, requester: &Id, known: &Id) {
-        if let Id::CsType { name, namespace } = known {
+        if let Id::CsType(name) = known {
             self.requests.insert(TypeRequest::new(
                 requester, 
-                name, 
-                &namespace.as_ref().map(|ns| vec![ns.clone()]).unwrap_or(vec![]), 
+                name.clone(), 
+                &[], 
                 true,
             ));
         }
@@ -90,7 +88,7 @@ impl TypeBroker {
     }
 
     pub fn fulfill_known(&mut self, database: &mut Database) {
-        for req in self.requests.extract_if(|req| req.known) {
+        for req in self.requests.extract_if(|req| req.fully_qualified) {
             if let Some(asset) = database.asset_mut(&req.requester) {
                 asset.relations.insert(Relation::Uses(req.into()));
             }

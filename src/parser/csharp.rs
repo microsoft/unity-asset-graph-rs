@@ -1,6 +1,7 @@
 //mod queries;
 mod find_types;
 pub mod type_broker;
+pub mod qualified_name;
 
 #[cfg(feature = "locstring")]
 mod find_locstrings;
@@ -85,7 +86,7 @@ fn parse_buffer(
 mod test {
     use super::*;
     use std::collections::HashSet;
-    use crate::{AssetType, Id, Relation};
+    use crate::{AssetType, Id, Relation, QualifiedName};
 
     #[test]
     fn test_parse_csharp() -> Result<(), ParseError> {
@@ -95,6 +96,8 @@ using My.DifferentNamespace;
 
 namespace My.Namespace {
     public class MyClass {
+        public delegate void MyDelegate(int x);
+
         internal class UnderClass { }
 
         private static My.OtherNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
@@ -145,7 +148,7 @@ namespace My.Namespace {
 
         let more_reference = vec![
             Asset {
-                id: Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -153,7 +156,7 @@ namespace My.Namespace {
                 ..Default::default()
             },
             Asset {
-                id: Id::CsType { name: "MyClass.UnderClass".into(), namespace: Some("My.Namespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.MyDelegate")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -161,7 +164,7 @@ namespace My.Namespace {
                 ..Default::default()
             },
             Asset {
-                id: Id::CsType { name: "MyStruct".into(), namespace: Some("My.Namespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.UnderClass")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -169,7 +172,7 @@ namespace My.Namespace {
                 ..Default::default()
             },
             Asset {
-                id: Id::CsType { name: "MyEnum".into(), namespace: Some("My.Namespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.MyStruct")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -177,7 +180,7 @@ namespace My.Namespace {
                 ..Default::default()
             },
             Asset {
-                id: Id::CsType { name: "IMyInterface".into(), namespace: Some("My.Namespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.MyEnum")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -185,7 +188,15 @@ namespace My.Namespace {
                 ..Default::default()
             },
             Asset {
-                id: Id::CsType { name: "InnerClass".into(), namespace: Some("My.Namespace.InnerNamespace".into()) },
+                id: Id::CsType(QualifiedName::from("My.Namespace.IMyInterface")),
+                asset_type: AssetType::CsType,
+                relations: HashSet::from([
+                    Relation::ContainedBy(Id::None),
+                ]),
+                ..Default::default()
+            },
+            Asset {
+                id: Id::CsType(QualifiedName::from("My.Namespace.InnerNamespace.InnerClass")),
                 asset_type: AssetType::CsType,
                 relations: HashSet::from([
                     Relation::ContainedBy(Id::None),
@@ -199,25 +210,25 @@ namespace My.Namespace {
 
         let requests_ref = HashSet::from([
             type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocalizedString",
+                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+                QualifiedName::from("LocalizedString"),
                 &vec!["My.OtherNamespace".into()],
                 true,
             ),
             type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocalizedString",
+                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+                QualifiedName::from("LocalizedString"),
                 &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
                 false,
             ),
             type_broker::TypeRequest::new(
-                &Id::CsType { name: "MyClass".into(), namespace: Some("My.Namespace".into()) },
-                "LocStringCache",
+                &Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+                QualifiedName::from("LocStringCache"),
                 &vec!["My.DifferentNamespace".into(), "My.Namespace".into()],
                 false,
             ),
         ]);
-        assert_eq!(broker.requests().difference(&requests_ref).collect::<Vec<&type_broker::TypeRequest>>(), Vec::<&type_broker::TypeRequest>::new());
+        assert_eq!(broker.requests().difference(&requests_ref).count(), 0);
 
         Ok(())
     }
