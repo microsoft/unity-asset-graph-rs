@@ -60,6 +60,7 @@ fn parse_buffer(
     path: &PathBuf,
     broker: &Arc<Mutex<TypeBroker>>
 ) -> Result<Vec<Asset>, ParseError> {
+    println!("parse_buffer");
     let mut def_assets = vec![];
     
     // load syntax tree
@@ -90,122 +91,90 @@ mod test {
 
     #[test]
     fn test_parse_csharp() -> Result<(), ParseError> {
-        let code = r#"
-using System;
-using My.DifferentNamespace;
-
-namespace My.Namespace {
-    public class MyClass {
-        public delegate void MyDelegate(int x);
-
-        internal class UnderClass { }
-
-        private static My.OtherNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
-
-        private static LocalizedString locstringPrefixed = LocStringCache.Get(
-            key: "PrefixedKey",
-            formatArgs: "Some other text");
-
-        private static LocalizedString locstringBad = LocStringCache.Get(someKey);
-
-        private static LocalizedString locstringBadPrefix = LocStringCache.Get(key: someKey);
-
-        public int MyProperty { get; set; }
-    }
-
-    struct MyStruct {
-        public int X;
-        public int Y;
-    }
-
-    enum MyEnum {
-        First,
-        Second,
-        Third
-    }
-
-    interface IMyInterface {
-        void DoSomething();
-    }
-
-    namespace InnerNamespace {
-        class InnerClass { }
-    }
-}
-"#;
-        let mut asset = Asset {
+        let code = include_str!("./csharp_test.cs");
+        let mut file_asset = Asset {
+            id: Id::Guid(uuid::Uuid::nil()),
             asset_type: AssetType::CsFile,
             ..Default::default()
         };
         let broker = Arc::new(Mutex::new(TypeBroker::new()));
-        let more_assets = parse_buffer(code.as_bytes(), &mut asset, &"no_path".into(), &broker)?;
+        println!("Running parser");
+        let type_assets = parse_buffer(code.as_bytes(), &mut file_asset, &"no_path".into(), &broker)?;
+        println!("Done");
         let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
 
-        assert_eq!(asset.relations, HashSet::from([
+        assert_eq!(file_asset.relations, HashSet::from([
             Relation::Uses(Id::Loc("NormalKey".into())),
             Relation::Uses(Id::Loc("PrefixedKey".into()))
         ]));
 
-        let more_reference = vec![
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.MyDelegate")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.UnderClass")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.MyStruct")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.MyEnum")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.IMyInterface")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-            Asset {
-                id: Id::CsType(QualifiedName::from("My.Namespace.InnerNamespace.InnerClass")),
-                asset_type: AssetType::CsType,
-                relations: HashSet::from([
-                    Relation::ContainedBy(Id::None),
-                ]),
-                ..Default::default()
-            },
-        ];
-        for (i, a) in more_assets.iter().enumerate() {
-            assert_eq!(a, more_reference.get(i).unwrap());
+        let class_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+            ]),
+            ..Default::default()
+        };
+        let delegate_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.MyDelegate")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+                //Relation::ContainedBy(class_t.id.clone()),
+            ]),
+            ..Default::default()
+        };
+        let underclass_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.MyClass.UnderClass")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+                //Relation::ContainedBy(class_t.id.clone()),
+            ]),
+            ..Default::default()
+        };
+
+        let struct_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.MyStruct")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+            ]),
+            ..Default::default()
+        };
+
+        let enum_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.MyEnum")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+            ]),
+            ..Default::default()
+        };
+
+        let interface_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.IMyInterface")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+            ]),
+            ..Default::default()
+        };
+
+        let inner_t = Asset {
+            id: Id::CsType(QualifiedName::from("My.Namespace.InnerNamespace.InnerClass")),
+            asset_type: AssetType::CsType,
+            relations: HashSet::from([
+                Relation::ContainedBy(file_asset.id.clone()),
+            ]),
+            ..Default::default()
+        };
+
+        let types_expected = vec![class_t, delegate_t, underclass_t, struct_t, enum_t, interface_t, inner_t];
+
+        for (i, a) in types_expected.iter().enumerate() {
+            assert_eq!(a, type_assets.get(i).expect("Missing asset"));
         }
 
         let requests_ref = HashSet::from([

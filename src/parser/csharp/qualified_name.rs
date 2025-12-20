@@ -83,7 +83,7 @@ impl QualifiedName {
     }
 
     pub fn namespace(&self) -> Self {
-        Self::new(self.0[1..].to_vec())
+        Self(self.0[1..].to_vec())
     }
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &String> {

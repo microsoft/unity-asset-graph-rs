@@ -47,6 +47,7 @@ pub fn find_types(
     def_assets: &mut Vec<Asset>, 
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<(), ParseError> {
+    println!("find_types");
     // included namespaces from using directives
     let mut usings = vec![];
     // included type aliases, i.e. `using X = F.Q.N;`
@@ -120,18 +121,38 @@ pub fn find_types(
 /// Query to find class, struct, enum, and interface declarations.
 /// Syntax tree identifiers come from https://github.com/tree-sitter/tree-sitter-c-sharp/blob/master/src/node-types.json
 static DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, "(type_declaration) @decl").expect("Failed to compile class query")
+    Query::new(&super::CS_LANG, r#"
+        [
+            (class_declaration)
+            (delegate_declaration)
+            (enum_declaration)
+            (interface_declaration)
+            (record_declaration)
+            (struct_declaration)
+        ] @decl"#
+    ).expect("Failed to compile class query")
 });
-static DECL_SUBTYPES: LazyLock<Vec<&str>> = LazyLock::new(|| {
-    super::CS_LANG.subtypes_for_supertype(
-        super::CS_LANG.id_for_node_kind("type_declaration", true),
-    ).iter().map(|k| super::CS_LANG.node_kind_for_id(*k).unwrap()).collect()
-});
+
+/// This really should work, but for some reason it doesn't
+// static DECL_SUBTYPES: LazyLock<Vec<&str>> = LazyLock::new(|| {
+//     super::CS_LANG.subtypes_for_supertype(
+//         super::CS_LANG.id_for_node_kind("type_declaration", true),
+//     ).iter().map(|k| super::CS_LANG.node_kind_for_id(*k).unwrap()).collect()
+// });
+const DECL_SUBTYPES: [&str; 6] = [
+    "class_declaration", 
+    "delegate_declaration", 
+    "enum_declaration", 
+    "interface_declaration", 
+    "record_declaration", 
+    "struct_declaration",
+];
 
 fn find_declarations<'a, 'b>(
     tree: &'a Tree,
     buffer: &'b [u8],
 ) -> Vec<TypeInfo<'a>> {
+    println!("find_declarations");
     let mut decls = vec![];
 
     // loop over all type declarations
@@ -150,9 +171,7 @@ fn find_declarations<'a, 'b>(
 fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
     let mut name_parts = vec![];
     let mut node = Some(decl_node);
-    let mut parts = vec![];
     while let Some(n) = node && n.kind() != "compilation_unit" {
-        parts.push(n.kind());
         if DECL_SUBTYPES.contains(&n.kind()) {
             name_parts.push(n.child_by_field_name("name").unwrap().utf8_text(buffer).unwrap());
         } else if n.kind() == "namespace_declaration" {
@@ -176,8 +195,6 @@ fn resolve_declaration(decl_node: Node, buffer: &[u8]) -> QualifiedName {
     }
 
     if name_parts.is_empty() {
-        println!("{DECL_SUBTYPES:?}");
-        println!("{parts:?}");
         _debug(decl_node, buffer);
         panic!("Failed to resolve declaration name");
     }
