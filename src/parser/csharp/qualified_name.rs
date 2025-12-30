@@ -3,48 +3,66 @@ use serde::{Deserialize, Serialize};
 
 /// A C# qualified name, represented as parts in reverse order (e.g. ["MyClass", "MyNamespace"])
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct QualifiedName(Vec<String>);
+pub enum QualifiedName {
+    Partial(Vec<String>),
+    Full(Vec<String>),
+}
 
 impl QualifiedName {
     pub fn global() -> Self {
-        Self(vec![])
-    }
-
-    pub fn is_global(&self) -> bool {
-        self.0.is_empty()
+        Self::Full(vec![])
     }
 
     pub fn new(parts: Vec<String>) -> Self {
         if parts.is_empty() {
             panic!("QualifiedName must have at least one part");
         }
-        Self(parts)
+        Self::Partial(parts)
     }
 
-    pub fn from_parts(parts: impl Iterator<Item = impl Into<String>>) -> Self {
+    pub fn from_iter(parts: impl Iterator<Item = impl Into<String>>) -> Self {
         Self::new(parts.map(|s| s.into()).collect())
     }
 
-    pub fn from_name(name: impl Into<String>, mut namespace: Self) -> Self {
-        namespace.0.insert(0, name.into());
-        Self(namespace.0)
+    pub fn from_name(name: impl Into<String>, namespace: Self) -> Self {
+        match namespace {
+            Self::Partial(mut p) => {
+                p.insert(0, name.into());
+                Self::Partial(p)
+            },
+            Self::Full(mut p) => {
+                p.insert(0, name.into());
+                Self::Full(p)
+            },
+        }
+    }
+
+    pub fn resolve(self) -> Self {
+        let parts = match self {
+            Self::Partial(p) | Self::Full(p) => p,
+        };
+        Self::Full(parts)
     }
 
     pub fn concat(narrow: &Self, broad: &Self) -> Self {
-        Self::from_parts(narrow.iter().chain(broad.iter()))
+        let new = Self::from_iter(narrow.iter().chain(broad.iter()));
+        if let Self::Full(_) = broad {
+            new.resolve()
+        } else {
+            new
+        }
     }
 
     /// Whether another name is within this namespace
     pub fn contains(&self, other: &Self) -> bool {
-        self.iter().rev().eq(other.iter().rev().take(self.0.len()))
+        self.iter().rev().eq(other.iter().rev().take(self.len()))
     }
 
     /// The containing type or namespace of this name
     pub fn container(&self) -> Self {
-        if self.0.len() <= 1 {
-            Self::global()
-        } else {
-            Self::new(self.0[1..].to_vec())
+        match self {
+            Self::Partial(p) => Self::Partial(p.iter().skip(1).collect()),
+            Self::Full(p) => Self::Full(p.iter().skip(1).collect()),
         }
     }
 
@@ -88,6 +106,12 @@ impl QualifiedName {
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &String> {
         self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Partial(p) | Self::Full(p) => p.len()
+        }
     }
 }
 

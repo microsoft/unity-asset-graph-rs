@@ -197,7 +197,7 @@ mod test {
                 false,
             ),
         ]);
-        assert_eq!(broker.requests().difference(&requests_ref).count(), 0);
+        assert_eq!(broker.requests(), &requests_ref);
 
         Ok(())
     }
