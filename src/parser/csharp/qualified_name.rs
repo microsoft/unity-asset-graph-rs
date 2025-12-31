@@ -5,23 +5,109 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 
-pub trait QualifiedName: Debug+Clone+PartialEq+Eq+PartialOrd+Ord+Hash+Serialize+Deserialize {
+pub trait QualifiedName: Eq + Ord + Hash {
     fn parts(&self) -> &[impl Borrow<str>];
+    fn is_fully_qualified(&self) -> bool;
 }
 
 /// A C# qualified name, represented as parts in reverse order (e.g. ["MyClass", "MyNamespace"])
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum QualifiedNameOwned {
-    Partial(Vec<String>),
-    Full(Vec<String>),
+pub struct FullyQualifiedName {
+    parts: Vec<String>,
+}
 
+impl FullyQualifiedName {
+    pub fn new(parts: Vec<String>) -> Self {
+        Self { parts }
+    }
+}
+
+impl FromIterator<String> for FullyQualifiedName {
+    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
+        Self { parts: iter.into_iter().collect() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PartiallyQualifiedName {
+    parts: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct FullyQualifiedNameRef<'a> {
+    parts: Vec<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct PartiallyQualifiedNameRef<'a> {
+    parts: Vec<&'a str>,
+}
+
+impl QualifiedName for FullyQualifiedName {
+    fn is_fully_qualified(&self) -> bool {
+        true
+    }
+    fn parts(&self) -> &[impl Borrow<str>] {
+        &self.parts
+    }
+}
+
+impl<'a> QualifiedName for FullyQualifiedNameRef<'a> {
+    fn is_fully_qualified(&self) -> bool {
+        true
+    }
+    fn parts(&self) -> &[impl Borrow<str>] {
+        &self.parts
+    }
+}
+
+impl QualifiedName for PartiallyQualifiedName {
+    fn is_fully_qualified(&self) -> bool {
+        false
+    }
+    fn parts(&self) -> &[impl Borrow<str>] {
+        &self.parts
+    }
+}
+
+impl<'a> QualifiedName for PartiallyQualifiedNameRef<'a> {
+    fn is_fully_qualified(&self) -> bool {
+        false
+    }
+    fn parts(&self) -> &[impl Borrow<str>] {
+        &self.parts
+    }
+}
+
+impl<'a> From<&'a FullyQualifiedName> for FullyQualifiedNameRef<'a> {
+    fn from(value: &'a FullyQualifiedName) -> Self {
+        Self {
+            parts: value.parts.iter().map(|s| s.as_str()).collect(),
+        }
+    }
+}
+
+impl<'a> Into<FullyQualifiedName> for FullyQualifiedNameRef<'a> {
+    fn into(self) -> FullyQualifiedName {
+        FullyQualifiedName { parts: self.parts.iter().map(|s| String::from(*s)).collect() }
+    }
+}
+
+impl<'a> From<&'a PartiallyQualifiedName> for PartiallyQualifiedNameRef<'a> {
+    fn from(value: &'a PartiallyQualifiedName) -> Self {
+        Self {
+            parts: value.parts.iter().map(|s| s.as_str()).collect(),
+        }
+    }
+}
+
+impl<'a> Into<PartiallyQualifiedName> for PartiallyQualifiedNameRef<'a> {
+    fn into(self) -> PartiallyQualifiedName {
+        PartiallyQualifiedName { parts: self.parts.iter().map(|s| String::from(*s)).collect() }
+    }
 }
 
 impl QualifiedName {
-    pub fn global() -> Self {
-        Self::Full(vec![])
-    }
-
     pub fn new(parts: Vec<String>) -> Self {
         if parts.is_empty() {
             panic!("QualifiedName must have at least one part");
