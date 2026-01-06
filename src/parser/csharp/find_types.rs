@@ -297,11 +297,18 @@ fn resolve_parent_scope(node: Node) -> Option<Node> {
 }
 
 static VAR_DECL_QUERY: LazyLock<Query> = LazyLock::new(|| {
-    Query::new(&super::CS_LANG, r#"
-        (variable_declarator
-            name: (identifier) @name
-        )
-    "#).expect("Failed to compile variable usage query")
+    Query::new(&super::CS_LANG, r#"(
+        .
+        [
+            (field_declaration
+                (variable_declaration
+                    (variable_declarator
+                        name: (identifier) @name
+                    )
+                )
+            )
+        ]
+    )"#).expect("Failed to compile variable usage query")
 });
 
 fn find_vars_in_scope<'map, 'buf>(node: Node<'buf>, buffer: &'buf [u8], cache: &'map mut HashMap<Node<'buf>, Vec<&'buf str>>) -> &'map Vec<&'buf str> {
