@@ -14,12 +14,6 @@ use crate::{
 };
 use super::queries as queries;
 
-const EXCLUDED_NS: [&str; 3] = [
-    "System.",
-    "UnityEngine.",
-    "UnityEditor.",
-];
-
 struct TypeInfo<'a> {
     node: Node<'a>,
     name: QualifiedName,
@@ -57,11 +51,6 @@ pub fn find_types(
                 .utf8_text(buffer)
                 .unwrap();
 
-            for exns in EXCLUDED_NS {
-                if text.starts_with(exns) {
-                    break 'a;
-                }
-            }
             usings.push(QualifiedName::from(text));
         }
     }

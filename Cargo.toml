@@ -10,6 +10,7 @@ locstring = []
 [dependencies]
 ansi_term = "0.12.1"
 clap = { version = "4.5.40", features = ["derive"] }
+const_format = "0.2.35"
 regex = "1.11.1"
 rmp-serde = "1.3.0"
 serde = { version = "1.0.219", features = ["derive"] }

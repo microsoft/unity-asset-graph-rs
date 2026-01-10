@@ -1,5 +1,85 @@
-use tree_sitter::Query;
-use std::sync::LazyLock;
+use tree_sitter::{
+    Node,
+    Query,
+    QueryCursor, 
+    QueryError,
+    StreamingIterator, 
+    Tree,
+};
+use std::{
+    collections::HashSet, fmt::{Display, Formatter, Result as FResult}, sync::LazyLock
+};
+use const_format::formatcp;
+use crate::parser::csharp::CS_LANG;
+
+const USE_NS: &str = r#"
+    (using_directive
+        [(identifier) (qualified_name)] @ns
+        !name
+    )
+"#;
+
+const QUERY_ALL: &str = formatcp!(r#"
+    [
+        {USE_NS}
+    ]
+"#);
+
+#[derive(Debug)]
+pub enum Error<'a> {
+    Query(QueryError),
+    Field(&'a str),
+    Utf8,
+}
+impl<'a> Display for Error<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
+        match self {
+            Self::Query(q) => write!(f, "{q}"),
+            Self::Field(e) => write!(f, "No such field '{e}'"),
+            Self::Utf8 => write!(f, "Failed to convert buffer to UTF-8"),
+        }
+    }
+}
+impl<'a> std::error::Error for Error<'a> {}
+
+fn get_query_output<'a, 'b>(q_text: &'a str, field: &'a str, node: Node<'b>, buffer: &'b [u8]) -> Result<HashSet<&'b str>, Error<'a>> {
+    let query = Query::new(&CS_LANG, q_text).map_err(|e| Error::Query(e))?;
+    let field = match query.capture_index_for_name(field) {
+        Some(i) => i,
+        _ => return Err(Error::Field(field)),
+    };
+
+    let mut cursor = QueryCursor::new();
+    let mut iter = cursor.matches(&query, node, buffer);
+    
+    let mut results = HashSet::new();
+    while let Some(m) = iter.next() {
+        let id = m.captures[field as usize].node.utf8_text(buffer).map_err(|_| Error::Utf8)?;
+        results.insert(id);
+    }
+    Ok(results)
+}
+
+#[cfg(test)]
+mod test {
+    use tree_sitter::Parser;
+
+    use super::*;
+
+    const CODE: &[u8] = include_bytes!("../csharp_test.cs");
+    static TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to load C# language");
+        parser.parse(CODE, None).expect("Failed to parse test file")
+    });
+
+    #[test]
+    fn use_ns() -> Result<(), Error<'static>> {
+        let namespaces = get_query_output(USE_NS, "ns", TREE.root_node(), CODE)?;
+        assert_eq!(namespaces, HashSet::from(["System", "My.DifferentNamespace"]));
+        Ok(())
+    }
+}
 
 pub static USING_QUERY: LazyLock<Query> = LazyLock::new(|| {
     Query::new(&super::CS_LANG, r#"
