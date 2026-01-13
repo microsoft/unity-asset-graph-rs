@@ -1,48 +1,43 @@
-using System;
-using My.DifferentNamespace;
+using X;
+using XYC = X.Y.Class;
+using static X.Y.Class.StaticField;
+namespace A;
 
-namespace My.Namespace {
-    public class MyClass {
-        public delegate void MyDelegate(int x);
+namespace B {
+    public class ClassB {
+        public delegate void Delegate(int x);
 
-        internal class UnderClass { }
+        public int A;
 
-        private static My.OtherNamespace.LocalizedString locstringNormal = LocStringCache.Get("NormalKey");
+        public event Delegate B;
 
-        private static LocalizedString locstringPrefixed = LocStringCache.Get(
-            key: "PrefixedKey",
-            formatArgs: "Some other text");
-
-        private const string someKey = "RefKey";
-
-        private static LocalizedString locstringRef = LocStringCache.Get(someKey);
-
-        private static LocalizedString locstringRefPrefix = LocStringCache.Get(key: someKey);
-
-        public int MyProperty { get; set; }
-
-        public static void MyMethod()
+        public int this[int x]
         {
-            LocStringCache.Deep.FakeProp = someKey.Length;
+            get
+            {
+                return StaticField[A];
+            }
+            set
+            {
+                A = value + x;
+                B?.Invoke(A);
+                XYC.StaticMethod(A);
+            }
+        }
+
+        public int Ap
+        {
+            get => A;
+            set => A = value;
+        }
+
+        public void Method(in int a, string b, out int c)
+        {
+            
         }
     }
 
-    struct MyStruct {
-        public int X;
-        public int Y;
-    }
-
-    enum MyEnum {
-        First,
-        Second,
-        Third
-    }
-
-    interface IMyInterface {
-        void DoSomething();
-    }
-
-    namespace InnerNamespace {
-        class InnerClass { }
+    namespace C {
+        class ClassC { }
     }
 }
