@@ -1,7 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Display, Formatter, Result as FResult},
-    sync::LazyLock
+    collections::{HashMap, HashSet}, fmt::{Display, Formatter, Result as FResult}, str::Utf8Error, sync::LazyLock
 };
 use tree_sitter::{Tree, Query, QueryCursor, QueryError, QueryMatch, Node, StreamingIterator};
 use crate::parser::csharp::qualified_name;
@@ -17,7 +15,7 @@ pub enum Error<'a> {
     Query(QueryError),
     FieldName(&'a str),
     FieldId(u32),
-    Utf8,
+    Utf8(Utf8Error),
     BadStaticUsing(&'a str),
     BadName(qualified_name::Error<'a>),
     Unknown(&'a str),
@@ -29,7 +27,7 @@ impl<'a> Display for Error<'a> {
             Self::Query(q) => write!(f, "{q}"),
             Self::FieldName(e) => write!(f, "No such field '{e}'"),
             Self::FieldId(id) => write!(f, "No such field {id}"),
-            Self::Utf8 => write!(f, "Failed to convert buffer to UTF-8"),
+            Self::Utf8(e) => write!(f, "Failed to convert buffer to UTF-8: {e}"),
             Self::BadStaticUsing(s) => write!(f, "Failed to parse static using '{s}'"),
             Self::BadName(e) => write!(f, "Failed to parse name: {e}"),
             Self::Unknown(s) => write!(f, "Unknown error: {s}"),
@@ -49,7 +47,7 @@ pub struct StructureInfo<'buffer, 'tree> {
     pub aliases: HashMap<&'buffer str, &'buffer str>,
     pub type_declarations: HashSet<QualifiedName>,
     pub id_scopes: HashMap<Node<'tree>, HashSet<&'buffer str>>,
-    pub id_uses: HashSet<Node<'tree>>,
+    pub id_uses: HashMap<Node<'tree>, QualifiedName>,
 }
 
 pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<StructureInfo<'b, 't>, Error<'b>> {
@@ -57,8 +55,8 @@ pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<St
 
     let f_ns_use = get_field(&QUERY, "ns_use")?;
     let f_type_decl = get_field(&QUERY, "type_decl")?;
-    let f_type_use = get_field(&QUERY, "type_use")?;
     let f_var_decl = get_field(&QUERY, "var_decl")?;
+    let f_type_use = get_field(&QUERY, "type_use")?;
     let f_var_use = get_field(&QUERY, "var_use")?;
     let f_id = get_field(&QUERY, "id")?;
 
@@ -71,10 +69,12 @@ pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<St
                 evaluate_ns(c.node, m, buffer, &mut results)?;
             } else if c.index == f_type_decl {
                 evaluate_type_decl(c.node, m, buffer, &mut results)?;
+            } else if c.index == f_var_decl {
+                evaluate_var_decl(c.node, m, buffer, &mut results)?;
             } else if c.index == f_type_use {
                 evaluate_type_use(c.node, m, buffer, &mut results)?;
-            } else if c.index == f_var_decl {
             } else if c.index == f_var_use {
+                evaluate_var_use(c.node, m, buffer, &mut results)?;
             } else if c.index != f_id {
                 return Err(Error::FieldId(c.index));
             }
@@ -105,8 +105,8 @@ fn evaluate_ns<'t, 'b>(
     let f_id = get_field(&QUERY, "id")?;
 
     let id = match qmatch.nodes_for_capture_index(f_id).next() {
-        Some(id) => id.utf8_text(buffer).map_err(|_| Error::Utf8)?,
-        None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|_| Error::Utf8)?)),
+        Some(id) => id.utf8_text(buffer).map_err(|e| Error::Utf8(e))?,
+        None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
     };
 
     let mut cursor = node.walk();
@@ -120,7 +120,7 @@ fn evaluate_ns<'t, 'b>(
         let (qualtype, field) = match id.rsplit_once('.') {
             Some(p) => p,
             None => return Err(Error::BadStaticUsing(
-                node.utf8_text(buffer).map_err(|_| Error::Utf8)?
+                node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?
             )),
         };
         result.aliases.insert(field, qualtype);
@@ -144,7 +144,7 @@ fn evaluate_type_decl<'t, 'b>(
             QualifiedName::try_from(id, buffer).map_err(|e| Error::BadName(e))?
         },
         None => {
-            return Err(Error::Unknown(node.utf8_text(buffer).map_err(|_| Error::Utf8)?))
+            return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?))
         },
     };
 
@@ -178,7 +178,27 @@ fn evaluate_type_decl<'t, 'b>(
     Ok(())
 }
 
+
+fn evaluate_var_decl<'t, 'b>(
+    node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
+) -> Result<(), Error<'b>> {
+    let f_id = get_field(&QUERY, "id")?;
+    let id = match qmatch.nodes_for_capture_index(f_id).next() {
+        Some(id) => id,
+        None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+    };
+
+    result.id_scopes.entry(node).or_insert(HashSet::new());
+    Ok(())
+}
+
 fn evaluate_type_use<'t, 'b>(
+    node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
+) -> Result<(), Error<'b>> {
+    Ok(())
+}
+
+fn evaluate_var_use<'t, 'b>(
     node: Node<'t>, qmatch: &QueryMatch<'_, 't>, buffer: &'b [u8], result: &mut StructureInfo<'b, 't>,
 ) -> Result<(), Error<'b>> {
     Ok(())
