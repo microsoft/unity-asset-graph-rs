@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet}, fmt::{Display, Formatter, Result as FResult}, str::Utf8Error, sync::LazyLock
 };
 use tree_sitter::{Tree, Query, QueryCursor, QueryError, QueryMatch, Node, StreamingIterator};
-use crate::parser::csharp::qualified_name;
+use crate::parser::csharp::qualified_name::{self, QualifiedNameRef};
 
 use super::{
     CS_LANG,
@@ -45,9 +45,9 @@ static QUERY: LazyLock<Query> = LazyLock::new(|| {
 pub struct StructureInfo<'buffer, 'tree> {
     pub namespaces: HashSet<&'buffer str>,
     pub aliases: HashMap<&'buffer str, &'buffer str>,
-    pub type_declarations: HashSet<QualifiedName>,
+    pub type_declarations: HashSet<QualifiedNameRef<'buffer>>,
     pub id_scopes: HashMap<Node<'tree>, HashSet<&'buffer str>>,
-    pub id_uses: HashMap<Node<'tree>, QualifiedName>,
+    pub id_uses: HashMap<Node<'tree>, QualifiedNameRef<'buffer>>,
 }
 
 pub fn evaluate_structure<'t, 'b>(tree: &'t Tree, buffer: &'b [u8]) -> Result<StructureInfo<'b, 't>, Error<'b>> {
@@ -141,7 +141,7 @@ fn evaluate_type_decl<'t, 'b>(
 
     let mut name = match qmatch.nodes_for_capture_index(f_id).next() {
         Some(id) => {
-            QualifiedName::try_from(id, buffer).map_err(|e| Error::BadName(e))?
+            QualifiedNameRef::try_from(id, buffer).map_err(|e| Error::BadName(e))?
         },
         None => {
             return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?))
@@ -155,8 +155,8 @@ fn evaluate_type_decl<'t, 'b>(
     while let Some(ancestor) = i.parent() {
         if ancestor.kind_id() == ns_kind
         && let Some(ns) = ancestor.child_by_field_name("name") {
-            let ns = QualifiedName::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
-            name = QualifiedName::concat(ns, name);
+            let ns = QualifiedNameRef::try_from(ns, buffer).map_err(|e| Error::BadName(e))?;
+            name = QualifiedNameRef::concat(ns, name);
         }
 
         i = ancestor;
@@ -169,8 +169,8 @@ fn evaluate_type_decl<'t, 'b>(
         .filter(|c| c.kind_id() == fsns_kind)
         .next()
     && let Some(ns) = fsns.child_by_field_name("name")
-    && let Ok(ns) = QualifiedName::try_from(ns, buffer) {
-        name = QualifiedName::concat(ns, name);
+    && let Ok(ns) = QualifiedNameRef::try_from(ns, buffer) {
+        name = QualifiedNameRef::concat(ns, name);
     }
 
     result.type_declarations.insert(name);
@@ -188,7 +188,9 @@ fn evaluate_var_decl<'t, 'b>(
         None => return Err(Error::Unknown(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
     };
 
-    result.id_scopes.entry(node).or_insert(HashSet::new());
+    result.id_scopes.entry(node)
+        .or_insert(HashSet::new())
+        .insert(id.utf8_text(buffer).map_err(|e| Error::Utf8(e))?);
     Ok(())
 }
 
@@ -233,7 +235,7 @@ mod test {
         ]));
 
         assert_eq!(result.type_declarations, HashSet::from([
-            QualifiedName::from("A.B.ClassB"), QualifiedName::from("A.B.C.ClassC"),
+            QualifiedNameRef::from("A.B.ClassB"), QualifiedNameRef::from("A.B.C.ClassC"),
         ]));
 
         assert_eq!(result.id_scopes, HashMap::from([
