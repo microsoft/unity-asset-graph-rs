@@ -36,6 +36,10 @@ namespace B {
 
         public string Method(in int a, string b, out int c)
         {
+            C.ClassC c = new();
+            ClassB.InnerClass b = new();
+            InnerClass bp = new();
+            
             var poolobj = ObjectPool<InnerClass>.Get();
             using (StringBuilder sb = StringBuilderCache.Get())
             {
