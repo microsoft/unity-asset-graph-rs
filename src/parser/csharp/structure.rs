@@ -213,31 +213,15 @@ mod test {
         sync::LazyLock,
     };
     use tree_sitter::{Parser, Point};
-    use crate::parser::csharp::CS_LANG;
+    use crate::parser::csharp::{
+        CS_LANG,
+        test::{NodeLike, TYPE_TEST_CODE, TYPE_TEST_TREE},
+    };
     use super::*;
-
-    #[derive(Debug, Hash, PartialEq, Eq)]
-    struct NodeLike {
-        kind: &'static str,
-        start_position: Point,
-    }
-
-    impl PartialEq<Node<'_>> for NodeLike {
-        fn eq(&self, other: &Node<'_>) -> bool {
-            self.kind == other.kind() && self.start_position == other.start_position()
-        }
-    }
-
-    const CODE: &[u8] = include_bytes!("../csharp_test.cs");
-    static TREE: LazyLock<Tree> = LazyLock::new(|| {
-        let mut parser = Parser::new();
-        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
-        parser.parse(CODE, None).expect("Failed to read code")
-    });
 
     #[test]
     fn evaluate_structure() -> Result<(), Error<'static>> {
-        let mut result = super::evaluate_structure(&TREE, CODE)?;
+        let mut result = super::evaluate_structure(&TYPE_TEST_TREE, TYPE_TEST_CODE)?;
 
         assert_eq!(result.namespaces, HashSet::from([
             "X", "System.Text",
@@ -290,6 +274,7 @@ mod test {
             let (_, node_ids) = result.id_scopes
                 .extract_if(|node, _| scope == node)
                 .next().expect(&format!("No matching scope for {scope:?}"));
+            
             assert_eq!(ids, &node_ids);
         }
         assert_eq!(result.id_scopes, HashMap::new());

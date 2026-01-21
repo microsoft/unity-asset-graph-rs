@@ -6,51 +6,34 @@ use std::{
 };
 use const_format::{formatcp, concatcp};
 
-fn _debug_up(node: Node, buffer: &[u8]) {
-    let mut n = Some(node);
-    while let Some(node) = n {
-        let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
-        if text.len() < 100 {
-            println!("{}: {}", node.kind(), text);
-        }
-        else {
-            println!("{}: {}...<{} bytes>", node.kind(), &text[..100], node.end_byte() - node.start_byte() - 100);
-        }
-        n = node.parent();
-    }
-    println!();
-}
-
-fn _debug_down(node: Node, buffer: &[u8], max_depth: usize) {
-    fn helper(node: Node, buffer: &[u8], depth: usize, max_depth: usize) {
-        let indent = " ".repeat(depth);
-        let kind = node.kind();
-        let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
-        if text.len() < 100 {
-            println!("{indent}{kind}: {text}");
-        }
-        else {
-            println!("{indent}{kind}: {}...<{} bytes>", &text[..100], node.end_byte() - node.start_byte() - 100);
-        }
-
-        if depth >= max_depth {
-            return;
-        }
-        
-        let mut cursor = node.walk();
-        for c in node.children(&mut cursor) {
-            helper(c, buffer, depth + 1, max_depth);
-        }
-    }
-    helper(node, buffer, 0, max_depth);
-}
+/// Finds all the namespace declarations. Captures the containing scope "ns_decl" and the name "id".
+const NS_DECL: &str = r#"
+    (compilation_unit
+        (namespace_declaration
+            name: [(qualified_name) (identifier)] @id
+        )
+    ) @ns_decl
+    (declaration_list
+        (namespace_declaration
+            name: [(qualified_name) (identifier)] @id
+        )
+    ) @ns_decl
+"#;
 
 /// Finds all the "normal" namespace import directives. Captures the directive "ns_use" and the namespace "id".
 /// NOTE: Includes "using static" directives, which are not namespace imports. Must account for these manually.
 const NS_USAGE: &str = r#"
-    (using_directive
-        [(qualified_name) (identifier)] @id
-        !name
+    (compilation_unit
+        (using_directive
+            [(qualified_name) (identifier)] @id
+            !name
+        )
+    ) @ns_use
+    (declaration_list
+        (using_directive
+            [(qualified_name) (identifier)] @id
+            !name
+        )
     ) @ns_use
 "#;
 
@@ -58,6 +41,11 @@ const NS_USAGE: &str = r#"
 const TYPE_DECL_ID: &str = r#"
     (class_declaration
         name: (identifier) @id
+    )
+    (class_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
     )
     (delegate_declaration
         name: (identifier) @id
@@ -76,18 +64,75 @@ const TYPE_DECL_ID: &str = r#"
     )
 "#;
 
+/// Find all type declarations, and capture the type ID "id"
+const TYPE_DECL_GENERIC_ID: &str = r#"
+    (class_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
+    ) @type_decl
+    (delegate_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
+    ) @type_decl
+    (interface_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
+    ) @type_decl
+    (record_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
+    ) @type_decl
+    (struct_declaration
+        (type_parameter_list
+            (type_parameter name: (identifier) @id)
+        )
+    ) @type_decl
+"#;
+
 /// Find all top-level type declarations, i.e. in a namespace or un-namespaced.
-/// Captures the declaration node "type_decl" and the type identifier "id".
+/// Captures the declaration scope "type_decl" and the type identifier "id".
 const TYPE_DECL: &str = formatcp!(r#"
-    (namespace_declaration
-        body: (declaration_list
-            [{TYPE_DECL_ID}] @type_decl
+    (declaration_list
+        [{TYPE_DECL_ID}]
+    ) @type_decl
+    (compilation_unit
+        [{TYPE_DECL_ID}]
+    ) @type_decl
+    {TYPE_DECL_GENERIC_ID}
+"#);
+
+/// Matches all usages of types. Captures the type name "type_use", including any generic args.
+/// Note: Includes types in `using alias = T` directives. These must be excluded manually.
+const TYPE_USAGE: &str = r#"
+    (type/identifier) @type_use
+    (type/generic_name) @type_use
+    (type/alias_qualified_name) @type_use
+    (type/qualified_name
+        qualifier: [(identifier) (qualified_name) (generic_name)]
+    ) @type_use
+    (type/tuple_type
+        (tuple_element
+            type: [(identifier) (qualified_name) (generic_name)] @type_use
         )
     )
-    (compilation_unit
-        [{TYPE_DECL_ID}] @type_decl
+    (type/scoped_type
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
     )
-"#);
+    (type/array_type 
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
+    )
+    (type/nullable_type 
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
+    )
+    (type/ref_type 
+        type: [(identifier) (qualified_name) (generic_name)] @type_use
+    )
+"#;
+
 
 /// Matches a variable declaration. Captures the var identifier "id"
 const VAR_DECL_ID: &str = r#"
@@ -113,20 +158,27 @@ const VAR_DECL_PARTS: [&str; 5] = [
         (block [
             (local_declaration_statement {VAR_DECL_ID})
             (fixed_statement {VAR_DECL_ID})
-            (using_statement {VAR_DECL_ID})
+            (using_statement
+                {VAR_DECL_ID}
+                body: (empty_statement)
+            )
         ])
     "#),
 
-    // the iterator in a for statement
+    // declared variable in a special statement
     formatcp!(r#"
         (for_statement initializer: {VAR_DECL_ID})
+        (using_statement
+            {VAR_DECL_ID}
+        )
     "#),
 
-    // un-namespaced type declarations
+    // file-scoped "using" alias and static type declarations
     formatcp!(r#"
         (compilation_unit [
-            {TYPE_DECL_ID}
-            (using_directive name: (identifier) @id)
+            (using_directive
+                name: (identifier) @id
+            )
             (using_directive
                 "static"
                 !name
@@ -140,11 +192,18 @@ const VAR_DECL_PARTS: [&str; 5] = [
     // identifiers declared in a namespace or type body, i.e. type/field/property/method names
     formatcp!(r#"
         (declaration_list [
-            {TYPE_DECL_ID}
             (field_declaration {VAR_DECL_ID})
             (event_field_declaration {VAR_DECL_ID})
             (property_declaration name: (identifier) @id)
             (method_declaration name: (identifier) @id)
+            (using_directive name: (identifier) @id)
+            (using_directive
+                "static"
+                !name
+                (qualified_name
+                    name: (identifier) @id
+                )
+            )
         ])
     "#),
 
@@ -171,147 +230,343 @@ const VAR_DECL: &str = concatcp!(
     "[", VAR_DECL_PARTS[0], VAR_DECL_PARTS[1], VAR_DECL_PARTS[2], VAR_DECL_PARTS[3], VAR_DECL_PARTS[4], "] @var_decl"
 );
 
-/// Matches all usages of types. Captures the type name "type_use", including any generic args.
-/// Note: Includes types in `using alias = T` directives. These must be excluded manually.
-const TYPE_USAGE: &str = r#"
-    (type/identifier) @type_use
-    (type/qualified_name
-        qualifier: [(identifier) (qualified_name) (generic_name)]
-    ) @type_use
-    (type/generic_name) @type_use
-    (type/tuple_type
-        (tuple_element
-            type: [(identifier) (qualified_name) (generic_name)] @type_use
-        )
-    )
-    (type/scoped_type
-        type: [(identifier) (qualified_name) (generic_name)] @type_use
-    )
-    (type/array_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type_use
-    )
-    (type/nullable_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type_use
-    )
-    (type/ref_type 
-        type: [(identifier) (qualified_name) (generic_name)] @type_use
-    )
-"#;
-
 /// Matches all uses of variables, which will include some type references not caught by `TYPE_USAGE`. Filter against
 /// `VAR_DECL` in the current scope to find them. Captures the variable/type name as "var_use".
 const VAR_USAGE: &str = r#"
-    (lvalue_expression/identifier) @var_use
-    (lvalue_expression/generic_name) @var_use
-    (lvalue_expression/member_access_expression
-        expression: [(identifier) (qualified_name) (generic_name)] @var_use
+    (expression/identifier) @var_use
+    (expression/generic_name) @var_use
+    (member_access_expression
+        expression: [(identifier) (generic_name) (qualified_name) (alias_qualified_name)] @var_use
     )
 "#;
 
 /// Matches everything we're looking for. Captures "ns_use", "type_decl", "var_decl", "id", "type_use", and "var_use".
 pub const QUERY_ALL: &str = concatcp!(
+    NS_DECL,
     NS_USAGE,
     TYPE_DECL,
-    VAR_DECL,
     TYPE_USAGE,
+    VAR_DECL,
     VAR_USAGE,
 );
 
 #[cfg(test)]
 mod test {
-    use std::sync::LazyLock;
-    use tree_sitter::{Parser};
-    use crate::parser::csharp::CS_LANG;
     use super::*;
+    use std::collections::HashMap;
+    use tree_sitter::{QueryMatch, StreamingIterator};
+    //use pretty_assertions::assert_eq;
+    use crate::parser::csharp::{
+        CS_LANG,
+        test::{
+            NS_TEST_CODE, NS_TEST_TREE, NodeLike, TYPE_TEST_CODE, TYPE_TEST_TREE, VAR_TEST_CODE, VAR_TEST_TREE
+        },
+    };
 
-    const CODE: &[u8] = include_bytes!("../csharp_test.cs");
-    static TREE: LazyLock<Tree> = LazyLock::new(|| {
-        let mut parser = Parser::new();
-        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
-        parser.parse(CODE, None).expect("Failed to read code")
-    });
+    fn assert_matches<'c, 't>(
+        query: &Query,
+        mut actual: impl StreamingIterator<Item = QueryMatch<'c, 't>>,
+        expected: Vec<HashMap<&str, NodeLike>>,
+    ) where 't: 'c {
+        let mut matched = HashSet::new();
+        let mut unexpected = vec![];
 
-    fn collect_set<'c, 't>(
-        mut iter: impl StreamingIterator<Item = QueryMatch<'c, 't>>, 
-        field: u32, 
-        buffer: &'_ [u8],
-    ) -> HashSet<&'_ str>
-    where 't: 'c {
-        let mut results = HashSet::new();
-        while let Some(m) = iter.next() {
-            let node = m.nodes_for_capture_index(field).next().expect("Failed to find captured field");
-            let id = node.utf8_text(buffer).expect("Failed to decode UTF-8");
-            results.insert(id);
+        // build a mapping of capture names in the expected set to capture indexes in the query
+        let mut capture_ids = HashMap::new();
+        for ecaps in &expected {
+            for cap_name in ecaps.keys() {
+                let id = query.capture_index_for_name(cap_name)
+                    .expect(&format!("Failed to get capture index for name '{cap_name}'"));
+                capture_ids.entry(id).or_insert(*cap_name);
+            }
         }
-        results
+
+        while let Some(amatch) = actual.next() {
+            // find the expected match
+            let exp = expected.iter().enumerate().find(|(_, ecaps)| {
+                // all of whose captures
+                amatch.captures.iter().all(|c| {
+                    // are in the name map
+                    let capture_name = match capture_ids.get(&c.index).map(|n| *n) {
+                        Some(n) => n,
+                        None => return false,
+                    };
+                    // and whose captured nodes match
+                    match ecaps.get(capture_name) {
+                        Some(enode) => *enode == c.node,
+                        None => false,
+                    }
+                })
+            });
+
+            if let Some((i, _)) = exp {
+                if !matched.insert(i) {
+                    println!("Multiply-matched: {:?}", expected[i]);
+                }
+            } else {
+                let captures: HashMap<&str, NodeLike> = amatch.captures.iter()
+                    .map(|c| (
+                        capture_ids.get(&c.index).map(|n| *n).unwrap(),
+                        NodeLike::from(c.node),
+                    ))
+                    .collect();
+                unexpected.push(captures);
+            }
+        }
+
+        let unmatched: Vec<HashMap<&str, NodeLike>> = expected.iter().enumerate()
+            .filter_map(|(i, m)| {
+                if !matched.contains(&i) { Some(m.clone()) } else { None }
+            })
+            .collect();
+        assert_eq!(unexpected, unmatched);
     }
 
     #[test]
-    fn use_ns() {
+    fn ns_decl() {
+        let query = Query::new(&CS_LANG, NS_DECL).expect("Failed to compile namespace query");
+        let mut cursor = QueryCursor::new();
+        let iter = cursor.matches(&query, NS_TEST_TREE.root_node(), NS_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // namespace L1
+            HashMap::from([
+                ("ns_decl", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("identifier", 5, 10)),
+            ]),
+            // namespace L2
+            HashMap::from([
+                ("ns_decl", NodeLike::new("declaration_list", 6, 0)),
+                ("id", NodeLike::new("identifier", 11, 14)),
+            ]),
+        ]);
+    }
+
+    #[test]
+    fn ns_usage() {
         let query = Query::new(&CS_LANG, NS_USAGE).expect("Failed to compile namespace query");
         let mut cursor = QueryCursor::new();
-        let iter = cursor.matches(&query, TREE.root_node(), CODE);
-
-        let field = query.capture_index_for_name("id").expect("Failed to find field 'id'");
-        let namespaces = collect_set(iter, field, CODE);
-
-        assert_eq!(namespaces, HashSet::from(["X", "X.Y.Z.Class.StaticField", "System.Text"]));
+        let iter = cursor.matches(&query, NS_TEST_TREE.root_node(), NS_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // using Ns0
+            HashMap::from([
+                ("ns_use", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("identifier", 1, 6)),
+            ]),
+            // using static Ns0.InnerType
+            HashMap::from([
+                ("ns_use", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("qualified_name", 3, 13)),
+            ]),
+            // using Ns1
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 6, 0)),
+                ("id", NodeLike::new("identifier", 7, 10)),
+            ]),
+            // using static Ns1.InnerType
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 6, 0)),
+                ("id", NodeLike::new("qualified_name", 9, 17)),
+            ]),
+            // using Ns2
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 12, 4)),
+                ("id", NodeLike::new("identifier", 13, 14)),
+            ]),
+            // using static Ns2.InnerType
+            HashMap::from([
+                ("ns_use", NodeLike::new("declaration_list", 12, 4)),
+                ("id", NodeLike::new("qualified_name", 15, 21)),
+            ]),
+        ]);
     }
 
     #[test]
     fn type_decl() {
-        let query = Query::new(&CS_LANG, TYPE_DECL).expect("Failed to compile type declaration query");
+        let query = Query::new(&CS_LANG, TYPE_DECL).expect("Failed to compile namespace query");
         let mut cursor = QueryCursor::new();
-        let iter = cursor.matches(&query, TREE.root_node(), CODE);
-
-        let field = query.capture_index_for_name("id").expect("Failed to look up capture id");
-        let types = collect_set(iter, field, CODE);
-
-        assert_eq!(types, HashSet::from(["ClassB", "ClassC"]));
-    }
-
-    #[test]
-    fn var_decl() {
-        let query = Query::new(&CS_LANG, VAR_DECL).expect("Failed to compile variable decl query");
-        let mut cursor = QueryCursor::new();
-        let iter = cursor.matches(&query, TREE.root_node(), CODE);
-
-        let field = query.capture_index_for_name("id").expect("Failed to look up capture id");
-        let vars = collect_set(iter, field, CODE);
-
-        assert_eq!(vars, HashSet::from([
-            "XYC", "ClassB", "Delegate", "InnerClass", "A", "B", "x", "Ap", "Method", "a", "b", "c", "sb", "i", "ClassC",
-            "poolobj", "StaticField",
-        ]));
+        let iter = cursor.matches(&query, TYPE_TEST_TREE.root_node(), TYPE_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // Enum0
+            HashMap::from([
+                ("type_decl", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("identifier", 2, 12)),
+            ]),
+            // Record2
+            HashMap::from([
+                ("type_decl", NodeLike::new("declaration_list", 12, 4)),
+                ("id", NodeLike::new("identifier", 13, 22)),
+            ]),
+            // Struct1
+            HashMap::from([
+                ("type_decl", NodeLike::new("declaration_list", 8, 0)),
+                ("id", NodeLike::new("identifier", 16, 18)),
+            ]),
+            // T
+            HashMap::from([
+                ("type_decl", NodeLike::new("struct_declaration", 16, 4)),
+                ("id", NodeLike::new("identifier", 16, 26)),
+            ]),
+            // Class1
+            HashMap::from([
+                ("type_decl", NodeLike::new("declaration_list", 8, 0)),
+                ("id", NodeLike::new("identifier", 20, 17)),
+            ]),
+            // ChildClass
+            HashMap::from([
+                ("type_decl", NodeLike::new("declaration_list", 21, 4)),
+                ("id", NodeLike::new("identifier", 22, 21)),
+            ]),
+            // INterface3
+            HashMap::from([
+                ("type_decl", NodeLike::new("declaration_list", 35, 0)),
+                ("id", NodeLike::new("identifier", 36, 21)),
+            ]),
+        ]);
     }
 
     #[test]
     fn type_usage() {
-        let query = Query::new(&CS_LANG, TYPE_USAGE).expect("Failed to compile type usage query");
+        let query = Query::new(&CS_LANG, TYPE_USAGE).expect("Failed to compile namespace query");
         let mut cursor = QueryCursor::new();
-        let iter = cursor.matches(&query, TREE.root_node(), CODE);
+        let iter = cursor.matches(&query, TYPE_TEST_TREE.root_node(), TYPE_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // using ns3a
+            HashMap::from([("type_use", NodeLike::new("identifier", 9, 17))]),
+            // T Value
+            HashMap::from([("type_use", NodeLike::new("identifier", 17, 15))]),
+            // ChildClassField
+            HashMap::from([("type_use", NodeLike::new("identifier", 24, 15))]),
+            // SiblingStructProperty
+            HashMap::from([("type_use", NodeLike::new("generic_name", 26, 15))]),
+            // SiblingStructProperty generic
+            HashMap::from([("type_use", NodeLike::new("alias_qualified_name", 26, 23))]),
+            // ParentEnumArray
+            HashMap::from([("type_use", NodeLike::new("identifier", 28, 15))]),
+            // NieceRecordField
+            HashMap::from([("type_use", NodeLike::new("qualified_name", 30, 15))]),
+        ]);
+    }
 
-        let field = query.capture_index_for_name("type").expect("Failed to look up capture index for 'type'");
-        let types = collect_set(iter, field, CODE);
-
-        assert_eq!(types, HashSet::from([
-            "X.Y.Class", "Delegate", "StringBuilder", "InnerClass",
-        ]));
+    #[test]
+    fn var_decl() {
+        let query = Query::new(&CS_LANG, VAR_DECL).expect("Failed to compile namespace query");
+        let mut cursor = QueryCursor::new();
+        let iter = cursor.matches(&query, VAR_TEST_TREE.root_node(), VAR_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // X
+            HashMap::from([
+                ("var_decl", NodeLike::new("compilation_unit", 0, 0)),
+                ("id", NodeLike::new("identifier", 0, 6)),
+            ]),
+            // Y
+            HashMap::from([
+                ("var_decl", NodeLike::new("declaration_list", 3, 0)),
+                ("id", NodeLike::new("identifier", 5, 10)),
+            ]),
+            // Field
+            HashMap::from([
+                ("var_decl", NodeLike::new("declaration_list", 10, 4)),
+                ("id", NodeLike::new("identifier", 11, 17)),
+            ]),
+            // Property
+            HashMap::from([
+                ("var_decl", NodeLike::new("declaration_list", 10, 4)),
+                ("id", NodeLike::new("identifier", 13, 17)),
+            ]),
+            // Delegate
+            HashMap::from([
+                ("var_decl", NodeLike::new("declaration_list", 10, 4)),
+                ("id", NodeLike::new("identifier", 15, 31)),
+            ]),
+            // Repeat
+            HashMap::from([
+                ("var_decl", NodeLike::new("declaration_list", 10, 4)),
+                ("id", NodeLike::new("identifier", 17, 22)),
+            ]),
+            // count
+            HashMap::from([
+                ("var_decl", NodeLike::new("method_declaration", 17, 8)),
+                ("id", NodeLike::new("identifier", 17, 33)),
+            ]),
+            // x
+            HashMap::from([
+                ("var_decl", NodeLike::new("block", 18, 8)),
+                ("id", NodeLike::new("identifier", 19, 14)),
+            ]),
+            // test (block)
+            HashMap::from([
+                ("var_decl", NodeLike::new("block", 18, 8)),
+                ("id", NodeLike::new("identifier", 20, 23)),
+            ]),
+            // test (local)
+            HashMap::from([
+                ("var_decl", NodeLike::new("using_statement", 20, 12)),
+                ("id", NodeLike::new("identifier", 20, 23)),
+            ]),
+            // sb
+            HashMap::from([
+                ("var_decl", NodeLike::new("using_statement", 21, 12)),
+                ("id", NodeLike::new("identifier", 21, 33)),
+            ]),
+            // i
+            HashMap::from([
+                ("var_decl", NodeLike::new("for_statement", 23, 16)),
+                ("id", NodeLike::new("identifier", 23, 25)),
+            ]),
+        ]);
     }
 
     #[test]
     fn var_usage() {
-        let query = Query::new(&CS_LANG, VAR_USAGE).expect("Failed to compile variable usage query");
+        let query = Query::new(&CS_LANG, VAR_USAGE).expect("Failed to compile namespace query");
         let mut cursor = QueryCursor::new();
-        let iter = cursor.matches(&query, TREE.root_node(), CODE);
-
-        let field = query.capture_index_for_name("var_use").expect("Failed to look up capture indoex for 'var_use'");
-        let vars = collect_set(iter, field, CODE);
-
-        assert_eq!(vars, HashSet::from([
-            "StaticField", "A", "A", "x", "B", "XYC", "ObjectPool<InnerClass>", "StringBuilderCache",
-            "i", "sb", "value"
-        ]));
+        let iter = cursor.matches(&query, VAR_TEST_TREE.root_node(), VAR_TEST_CODE);
+        assert_matches(&query, iter, vec![
+            // Delegate
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 19, 18)),
+            ]),
+            // Field
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 19, 35)),
+            ]),
+            // Property
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 19, 42)),
+            ]),
+            // FakeClass (missing)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 20, 30)),
+            ]),
+            // StringBuilderCache (missing)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 21, 38)),
+            ]),
+            // i (test)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 23, 32)),
+            ]),
+            // count (test)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 23, 36)),
+            ]),
+            // i (increment)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 23, 43)),
+            ]),
+            // sb append (missing)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 25, 20)),
+            ]),
+            // x append
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 25, 30)),
+            ]),
+            // sb return (missing)
+            HashMap::from([
+                ("var_use", NodeLike::new("identifier", 27, 23)),
+            ]),
+        ]);
     }
 
     #[test]

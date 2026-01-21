@@ -85,13 +85,103 @@ fn parse_buffer(
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
+    use tree_sitter::{Node, Point, Tree};
     use std::collections::HashSet;
     use pretty_assertions::assert_eq;
     use crate::{AssetType, Id, Relation, QualifiedName};
 
-    const CODE: &[u8] = include_bytes!("./csharp_test.cs");
+    
+    pub fn _debug_up(node: Node, buffer: &[u8]) {
+        let mut n = Some(node);
+        while let Some(node) = n {
+            let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
+            if text.len() < 100 {
+                println!("{}: {}", node.kind(), text);
+            }
+            else {
+                println!("{}: {}...<{} bytes>", node.kind(), &text[..100], node.end_byte() - node.start_byte() - 100);
+            }
+            n = node.parent();
+        }
+        println!();
+    }
+
+    pub fn _debug_down(node: Node, buffer: &[u8], max_depth: usize) {
+        fn helper(node: Node, buffer: &[u8], depth: usize, max_depth: usize) {
+            let indent = " ".repeat(depth);
+            let kind = node.kind();
+            let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
+            if text.len() < 100 {
+                println!("{indent}{kind}: {text}");
+            }
+            else {
+                println!("{indent}{kind}: {}...<{} bytes>", &text[..100], node.end_byte() - node.start_byte() - 100);
+            }
+
+            if depth >= max_depth {
+                return;
+            }
+            
+            let mut cursor = node.walk();
+            for c in node.children(&mut cursor) {
+                helper(c, buffer, depth + 1, max_depth);
+            }
+        }
+        helper(node, buffer, 0, max_depth);
+    }
+
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+    pub struct NodeLike {
+        pub kind: &'static str,
+        pub start_position: Point,
+    }
+
+    impl NodeLike {
+        pub fn new(kind: &'static str, row: usize, column: usize) -> Self {
+            Self {
+                kind,
+                start_position: Point { row, column },
+            }
+        }
+    }
+
+    impl PartialEq<Node<'_>> for NodeLike {
+        fn eq(&self, other: &Node<'_>) -> bool {
+            self.kind == other.kind() && self.start_position == other.start_position()
+        }
+    }
+
+    impl From<Node<'_>> for NodeLike {
+        fn from(value: Node<'_>) -> Self {
+            Self {
+                kind: value.kind(),
+                start_position: value.start_position(),
+            }
+        }
+    }
+
+    pub const NS_TEST_CODE: &[u8] = include_bytes!("./csharp/test/ns_test.cs");
+    pub static NS_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(NS_TEST_CODE, None).expect("Failed to read code")
+    });
+
+    pub const TYPE_TEST_CODE: &[u8] = include_bytes!("./csharp/test/type_test.cs");
+    pub static TYPE_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(TYPE_TEST_CODE, None).expect("Failed to read code")
+    });
+
+    pub const VAR_TEST_CODE: &[u8] = include_bytes!("./csharp/test/var_test.cs");
+    pub static VAR_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
+        let mut parser = Parser::new();
+        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser.parse(VAR_TEST_CODE, None).expect("Failed to read code")
+    });
 
     #[test]
     fn test_parse_decls() -> Result<(), ParseError> {
@@ -101,7 +191,7 @@ mod test {
             ..Default::default()
         };
         let broker = Arc::new(Mutex::new(TypeBroker::new()));
-        let type_assets = parse_buffer(CODE, &mut file_asset, &"no_path".into(), &broker)?;
+        let type_assets = parse_buffer(TYPE_TEST_CODE, &mut file_asset, &"no_path".into(), &broker)?;
 
         println!("Found assets: {:?}", type_assets.iter().map(|a| &a.id).collect::<Vec<&Id>>());
         assert_eq!(file_asset.relations, HashSet::from([
@@ -221,7 +311,7 @@ mod test {
             ..Default::default()
         };
         let broker = Arc::new(Mutex::new(TypeBroker::new()));
-        parse_buffer(CODE, &mut file_asset, &"no_path".into(), &broker)?;
+        parse_buffer(TYPE_TEST_CODE, &mut file_asset, &"no_path".into(), &broker)?;
         let broker = Arc::into_inner(broker).unwrap().into_inner().unwrap();
 
         println!("Type requests: {:#?}", broker.requests().iter().collect::<Vec<&type_broker::TypeRequest>>());
