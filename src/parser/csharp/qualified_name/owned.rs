@@ -35,7 +35,7 @@ impl QualifiedName {
         Self::from_iter(start.into_iter().chain(end.into_iter()))
     }
 
-    pub fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8]) -> Result<Self, Error<'b>> {
+    pub fn try_from(node: Node<'_>, buffer: &[u8]) -> Result<Self, Error> {
         let mut name = Self(vec![]);
         try_from(node, buffer, &mut name)?;
         name.0.reverse();
@@ -146,7 +146,7 @@ impl PartialEq<str> for QualifiedName {
 }
 
 /// Extract a qualified name recursively from the source tree. Note: outputs parts in reverse order.
-fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedName) -> Result<(), Error<'b>> {
+fn try_from(node: Node<'_>, buffer: &[u8], output: &mut QualifiedName) -> Result<(), Error> {
     match node.kind() {
         "identifier" => {
             let name = node.utf8_text(buffer)
@@ -168,7 +168,15 @@ fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedName
                     "type_argument_list" => {
                         name.push_str(GENERIC_NAMES[c.named_child_count() - 1]);
                     },
-                    _ => return Err(Error::BadGeneric(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+                    _ => {
+                        return Err(
+                            Error::BadGeneric(
+                                node.utf8_text(buffer)
+                                    .map(|s| s.to_string())
+                                    .map_err(|e| Error::Utf8(e))?
+                            )
+                        );
+                    },
                 }
             }
             output.push(name);
@@ -177,12 +185,18 @@ fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedName
         "qualified_name" => {
             let (name, qualifier) = match (node.child_by_field_name("name"), node.child_by_field_name("qualifier")) {
                 (Some(n), Some(q)) => (n, q),
-                _ => return Err(Error::BadQualified(node.utf8_text(buffer).map_err(|e| Error::Utf8(e))?)),
+                _ => {
+                    return Err(Error::BadQualified(
+                        node.utf8_text(buffer)
+                            .map(|s| s.to_string())
+                            .map_err(|e| Error::Utf8(e))?
+                    ));
+                },
             };
             try_from(name, buffer, output)?;
             try_from(qualifier, buffer, output)?;
             Ok(())
         },
-        _ => Err(Error::BadKind(node.kind())),
+        _ => Err(Error::BadKind(node.kind().to_string())),
     }
 }

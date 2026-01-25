@@ -1,3 +1,4 @@
+#![allow(unused)]
 pub mod database;
 mod parser;
 pub mod asset;

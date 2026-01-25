@@ -19,7 +19,7 @@ namespace Ns0
         {
             X x = Delegate?.Invoke(Field, Property);
             using (int test = FakeClass.Get());
-            using (StringBuilder sb = StringBuilderCache.Get())
+            using (StringBuilder sb = Main.StringBuilderCache.Get())
             {
                 for (int i = 0; i < count; i++)
                 {

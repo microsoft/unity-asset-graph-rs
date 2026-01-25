@@ -1,9 +1,3 @@
-use tree_sitter::{
-    Node, Query, QueryCursor, QueryError, QueryMatch, StreamingIterator, Tree
-};
-use std::{
-    collections::HashSet, 
-};
 use const_format::{formatcp, concatcp};
 
 /// Finds all the namespace declarations. Captures the containing scope "ns_decl" and the name "id".
@@ -238,8 +232,8 @@ pub const QUERY_ALL: &str = concatcp!(
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::collections::HashMap;
-    use tree_sitter::{QueryMatch, StreamingIterator};
+    use std::collections::{HashMap, HashSet};
+    use tree_sitter::{Query, QueryCursor, QueryError, QueryMatch, StreamingIterator};
     //use pretty_assertions::assert_eq;
     use crate::parser::csharp::{
         CS_LANG,

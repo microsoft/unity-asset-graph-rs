@@ -27,15 +27,15 @@ use crate::{
 pub struct ParseError {
     pub path: PathBuf,
     pub message: String,
-    pub inner: Option<Box<dyn Error>>,
+    pub inner: Option<Box<dyn Error + Send>>,
 }
 
 impl ParseError {
-    pub fn new(path: &Path, message: String, inner: Option<Box<dyn Error>>) -> Self {
+    pub fn new(path: &Path, message: String) -> Self {
         Self {
             path: path.to_path_buf(),
             message,
-            inner,
+            inner: None,
         }
     }
 }
