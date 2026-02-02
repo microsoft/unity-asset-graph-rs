@@ -255,6 +255,9 @@ pub mod kinds {
     pub static USING: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("using_directive", true));
     pub static STATIC: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("static", false));
     pub static MEMBER_ACCESS_EXPR: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("member_access_expression", true));
+    pub static INVOCATION_EXPR: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("invocation_expression", true));
+    pub static ELEMENT_ACCESS_EXPR: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("element_access_expression", true));
+    pub static GENERIC_NAME: LazyLock<u16> = LazyLock::new(|| CS_LANG.id_for_node_kind("generic_name", true));
 }
 
 #[cfg(test)]

@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Node};
-use std::fmt::{Display, Formatter, Result as FResult};
+use std::{
+    collections::HashSet,
+    fmt::{Display, Formatter, Result as FResult},
+    sync::LazyLock,
+};
 
 use super::{Error, GENERIC_NAMES, NamePart, QualifiedName, QualifiedNameOwned, QualifiedNamePart, generic_args_count_from_str};
 use super::super::queries::kinds as k;
@@ -215,6 +219,10 @@ impl<'a> Display for QualifiedNameRef<'a> {
     }
 }
 
+static MAE_TERMINALS: LazyLock<HashSet<u16>> = LazyLock::new(|| {
+    HashSet::from([*k::INVOCATION_EXPR, *k::ELEMENT_ACCESS_EXPR])
+});
+
 /// Extract a qualified name recursively from the source tree. Note: outputs parts in reverse order.
 fn try_from<'t, 'b, 'n>(node: Node<'t>, buffer: &'b [u8], output: &mut QualifiedNameRef<'n>) -> Result<(), Error>
 where 'b: 'n {
@@ -224,14 +232,24 @@ where 'b: 'n {
                 .map_err(|e| Error::Utf8(e))?;
             output.parts.push(NamePartRef { name, generics: 0 });
 
+            // if this identifier is the start of a member access chain, include the whole chain in the name
+            // because member_access_expressions are syntactically identical to qualified_names
             let mut parent = node;
             while let Some(p) = parent.parent() && p.kind_id() == *k::MEMBER_ACCESS_EXPR {
+                // end the chain early when this token is obviously not a type name
+                if let Some(a) = p.parent() && MAE_TERMINALS.contains(&a.kind_id()) {
+                    break;
+                }
                 if let Some(part_node) = p.child_by_field_name("name") && part_node != node {
-                    println!("adding mae: {part_node}");
                     try_from(part_node, buffer, output)?;
+                    // generic names are not valid namespace names, but are type names so end after this
+                    if part_node.kind_id() == *k::GENERIC_NAME {
+                        break;
+                    }
                 }
                 parent = p;
             }
+
             Ok(())
         },
         "generic_name" => {

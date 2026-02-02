@@ -57,11 +57,20 @@ pub fn find_types(
             }
             parent = p;
         }
+        if let Some(ref fsns) = info.fsns_decl {
+            full_name = QualifiedNameRef::try_concat(fsns.clone(), full_name).map_err(|e| ParseError {
+                path: asset.path.as_ref().unwrap().clone(),
+                message: "Failed to join qualified names".to_string(),
+                inner: Some(Box::new(e)),
+            })?;
+        }
 
-        asset_map.insert(node, Asset {
-            id: Id::CsType(full_name.to_owned()),
-            asset_type: AssetType::CsType,
-            path: None,
+        asset_map.insert(node, full_name);
+    }
+
+    for name in asset_map.values() {
+        def_assets.push(Asset {
+            id: Id::CsType(name.to_owned()),
             ..Default::default()
         });
     }
@@ -83,7 +92,7 @@ pub fn find_types(
         }
 
         // if the usage was within a defined asset
-        if let Some((decl, asset)) = container_asset {
+        if let Some((decl, decl_name)) = container_asset {
             // find all the namespaces in scope
             let mut ns = HashSet::new();
             let mut parent = **decl;
@@ -97,7 +106,7 @@ pub fn find_types(
             // file request
             let ns = ns.iter().map(|n| n.to_owned()).collect::<HashSet<QualifiedNameOwned>>();
             let b = &mut broker.lock().unwrap();
-            b.request(&asset.id, name.to_owned(), ns);
+            b.request(&Id::CsType(decl_name.to_owned()), name.to_owned(), ns);
         }
     }
 

@@ -554,7 +554,7 @@ mod test {
             (NodeLike::new("identifier", 19, 35), QualifiedNameRef::from("Field")),
             (NodeLike::new("identifier", 19, 42), QualifiedNameRef::from("Property")),
             (NodeLike::new("identifier", 20, 30), QualifiedNameRef::from("FakeClass")),
-            (NodeLike::new("identifier", 21, 38), QualifiedNameRef::from("Ns.Main.StringBuilderCache:Get")),
+            (NodeLike::new("identifier", 21, 38), QualifiedNameRef::from("Ns.Main.StringBuilderCache")),
             (NodeLike::new("identifier", 23, 32), QualifiedNameRef::from("i")),
             (NodeLike::new("identifier", 23, 36), QualifiedNameRef::from("count")),
             (NodeLike::new("identifier", 23, 43), QualifiedNameRef::from("i")),
