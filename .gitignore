@@ -22,3 +22,5 @@ target
 
 # debug asset databases
 db.*
+
+/rusty-tags.vi
