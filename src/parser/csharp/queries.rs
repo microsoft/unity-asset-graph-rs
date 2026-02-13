@@ -352,6 +352,11 @@ mod test {
                 ("ns_decl", NodeLike::new("declaration_list", 6, 0)),
                 ("id", NodeLike::new("identifier", 11, 14)),
             ]),
+            // namespace L3
+            HashMap::from([
+                ("ns_decl", NodeLike::new("declaration_list", 6, 0)),
+                ("id", NodeLike::new("identifier", 20, 14)),
+            ]),
         ]);
     }
 

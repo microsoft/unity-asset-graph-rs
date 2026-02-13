@@ -321,11 +321,14 @@ mod test {
             ])),
             (NodeLike::new("declaration_list", 6, 0), HashSet::from([
                 QualifiedNameRef::from("L2"),
+                QualifiedNameRef::from("L3"),
             ])),
         ]));
+
         assert_map(result.ns_decl_nodes, HashMap::from([
             (NodeLike::new("namespace_declaration", 5, 0), QualifiedNameRef::from("L1")),
             (NodeLike::new("namespace_declaration", 11, 4), QualifiedNameRef::from("L2")),
+            (NodeLike::new("namespace_declaration", 20, 4), QualifiedNameRef::from("L3")),
         ]));
 
         assert_map(result.ns_usages, HashMap::from([
@@ -355,9 +358,24 @@ mod test {
             ])),
         ]));
 
-        assert_eq!(result.type_decl_names, HashMap::new());
-        assert_eq!(result.type_decl_nodes, HashMap::new());
-        assert_eq!(result.type_usages, HashMap::new());
+        assert_map(result.type_decl_names, HashMap::from([
+            (NodeLike::new("declaration_list", 12, 4), HashSet::from([
+                QualifiedNameRef::from("Class2"),
+            ])),
+            (NodeLike::new("declaration_list", 21, 4), HashSet::from([
+                QualifiedNameRef::from("Class3"),
+            ]))
+        ]));
+
+        assert_map(result.type_decl_nodes, HashMap::from([
+            (NodeLike::new("class_declaration", 17, 8), QualifiedNameRef::from("Class2")),
+            (NodeLike::new("class_declaration", 22, 8), QualifiedNameRef::from("Class3")),
+        ]));
+
+        assert_map(result.type_usages, HashMap::from([
+            (NodeLike::new("qualified_name", 17, 23), QualifiedNameRef::from("L3.Class3")),
+        ]));
+        
         assert_eq!(result.var_decl, HashMap::new());
         assert_eq!(result.var_usages, HashMap::new());
     }

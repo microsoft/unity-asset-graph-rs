@@ -114,7 +114,7 @@ fn process_type_usages<'b, 't>(
                 use_name.resolve_alias(sub.clone());
             }
 
-            // save using class
+            // save containing class
             if let Some(decl) = decls.get(&ancestor) {
                 container = container.or(Some(decl.clone()));
             }
@@ -127,6 +127,9 @@ fn process_type_usages<'b, 't>(
             }
 
             // todo: namespace declarations
+            if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
+
+            }
 
             i = ancestor;
         }
@@ -141,4 +144,27 @@ fn process_type_usages<'b, 't>(
     }
 
     requests
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::super::test::*;
+
+    #[test]
+    fn type_usages_ns() {
+        let info = super::super::structure::evaluate_structure(&NS_TEST_TREE, NS_TEST_CODE).unwrap();
+        let decls = process_declarations(&info).unwrap();
+        let ref_types = process_type_usages(&info, &decls);
+
+        assert_eq!(ref_types, HashSet::from([
+            TypeRequest {
+                requester: Id::CsType(QualifiedNameOwned::from("L0.L1.L2.Class2")),
+                partial_name: QualifiedNameOwned::from("L3.Class3"),
+                scoped_namespaces: [
+                    // TODO
+                ].into_iter().map(QualifiedNameOwned::from).collect(),
+            }
+        ]));
+    }
 }

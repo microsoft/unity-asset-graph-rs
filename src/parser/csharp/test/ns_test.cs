@@ -15,6 +15,11 @@ namespace L1
         using ns2a = Ns2.InnerNs;
         using static Ns2.InnerType;
 
+        class Class2 : L3.Class3 {}
+    }
 
+    namespace L3
+    {
+        class Class3 {}
     }
 }

@@ -97,6 +97,17 @@ impl<'a> QualifiedNameRef<'a> {
         })
     }
 
+    pub fn concat(start: Self, end: Self) -> Self {
+        if let Some(alias) = end.alias {
+            panic!("Trailing name in a concat operation cannot have a namespace alias");
+        }
+
+        Self {
+            alias: start.alias,
+            parts: start.parts.into_iter().chain(end.parts.into_iter()).collect(),
+        }
+    }
+
     pub fn try_from<'t, 'b>(node: Node<'t>, buffer: &'b [u8]) -> Result<Self, Error>
         where 'b: 'a {
         let mut name = Self { ..Default::default() };
