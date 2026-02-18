@@ -96,6 +96,7 @@ fn process_type_usages<'b, 't>(
         let mut container = None;
         let mut use_name = name.clone();
         let mut ns = HashSet::new();
+        // let mut local_ns = HashSet::new();
 
         // walk up the hierarchy looking for all the stuff
         let mut i = *node;
@@ -108,10 +109,19 @@ fn process_type_usages<'b, 't>(
             }
 
             // resolve namespace alias if found
-            if let Some(ns_alias) = use_name.alias
-            && let Some(scope_aliases) = info.aliases.get(&ancestor)
-            && let Some(sub) = scope_aliases.get(&QualifiedNameRef::from(ns_alias)) {
-                use_name.resolve_alias(sub.clone());
+            if let Some(ns_alias) = use_name.alias {
+                if ns_alias == "global" {
+                    use_name.alias = None;
+                    requests.insert(TypeRequest {
+                        requester: Id::CsType(name.to_owned()),
+                        partial_name: use_name.to_owned(),
+                        scoped_namespaces: vec![],
+                    });
+                }
+                else if let Some(scope_aliases) = info.aliases.get(&ancestor)
+                && let Some(sub) = scope_aliases.get(&QualifiedNameRef::from(ns_alias)) {
+                    use_name.resolve_alias(sub.clone());
+                }
             }
 
             // save containing class
@@ -127,9 +137,10 @@ fn process_type_usages<'b, 't>(
             }
 
             // todo: namespace declarations
-            if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
-
-            }
+            // if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
+            //     let mut new_locals = vec![ns_decl];
+            //     new_locals.extend(local_ns.into_iter().map(|ns| QualifiedNameRef::concat(ns_decl.clone(), ns)));
+            // }
 
             i = ancestor;
         }
@@ -162,7 +173,8 @@ mod test {
                 requester: Id::CsType(QualifiedNameOwned::from("L0.L1.L2.Class2")),
                 partial_name: QualifiedNameOwned::from("L3.Class3"),
                 scoped_namespaces: [
-                    // TODO
+                    "Ns0", "Ns1", "Ns2",
+                    "L0.L1.L2", "L0.L1", "L0",
                 ].into_iter().map(QualifiedNameOwned::from).collect(),
             }
         ]));
