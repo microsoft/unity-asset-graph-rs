@@ -55,6 +55,21 @@ impl<'a> From<&'a str> for NamePartRef<'a> {
     }
 }
 
+impl<'a> From<&'a Self> for NamePartRef<'a> {
+    fn from(value: &'a Self) -> Self {
+        value.clone()
+    }
+}
+
+impl<'a> From<&'a NamePart> for NamePartRef<'a> {
+    fn from(value: &'a NamePart) -> Self {
+        Self {
+            name: value.name(),
+            generics: value.generics(),
+        }
+    }
+}
+
 impl<'a, T> PartialEq<T> for NamePartRef<'a> where T: QualifiedNamePart {
     fn eq(&self, other: &T) -> bool {
         self.name == other.name() && self.generics == other.generics()
@@ -86,7 +101,9 @@ pub struct QualifiedNameRef<'a> {
 }
 
 impl<'a> QualifiedNameRef<'a> {
-    pub fn try_concat(start: Self, end: Self) -> Result<Self, Error> {
+    pub fn try_concat(start: impl Into<Self>, end: impl Into<Self>) -> Result<Self, Error> {
+        let start = start.into();
+        let end = end.into();
         if let Some(alias) = end.alias {
             return Err(Error::BadAlias(alias.to_string()));
         }
@@ -97,7 +114,9 @@ impl<'a> QualifiedNameRef<'a> {
         })
     }
 
-    pub fn concat(start: Self, end: Self) -> Self {
+    pub fn concat(start: impl Into<Self>, end: impl Into<Self>) -> Self {
+        let start = start.into();
+        let end = end.into();
         if let Some(alias) = end.alias {
             panic!("Trailing name in a concat operation cannot have a namespace alias");
         }
@@ -212,6 +231,21 @@ impl<'a> From<&'a str> for QualifiedNameRef<'a> {
             new
         } else {
             Self::from_iter(value.split('.'))
+        }
+    }
+}
+
+impl<'a> From<&'a Self> for QualifiedNameRef<'a> {
+    fn from(value: &'a Self) -> Self {
+        value.clone()
+    }
+}
+
+impl<'a> From<&'a QualifiedNameOwned> for QualifiedNameRef<'a> {
+    fn from(value: &'a QualifiedNameOwned) -> Self {
+        Self {
+            parts: value.parts.iter().map(|p| p.into()).collect(),
+            alias: value.alias.as_ref().map(|s| s.as_str()),
         }
     }
 }

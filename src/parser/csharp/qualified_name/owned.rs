@@ -38,12 +38,18 @@ impl Display for NamePart {
     }
 }
 
-impl From<NamePartRef<'_>> for NamePart {
-    fn from(value: NamePartRef<'_>) -> Self {
+impl From<&NamePartRef<'_>> for NamePart {
+    fn from(value: &NamePartRef<'_>) -> Self {
         Self {
             name: value.name.to_string(),
             generics: value.generics,
         }
+    }
+}
+
+impl From<&Self> for NamePart {
+    fn from(value: &Self) -> Self {
+        value.clone()
     }
 }
 

@@ -45,6 +45,7 @@ pub fn find_types(
     for name in asset_map.values() {
         def_assets.push(Asset {
             id: Id::CsType(name.to_owned()),
+            asset_type: AssetType::CsType,
             relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
             ..Default::default()
         });
@@ -97,8 +98,8 @@ fn process_type_usages<'b, 't>(
     'usages: for (node, name) in info.type_usages.iter() {
         let mut container = None;
         let mut use_name = name.clone();
-        let mut ns = HashSet::new();
-        // let mut local_ns = HashSet::new();
+        let mut ns = vec![];
+        let mut local_ns = vec![];
 
         // walk up the hierarchy looking for all the stuff
         let mut i = *node;
@@ -134,24 +135,35 @@ fn process_type_usages<'b, 't>(
             // save imported namespaces
             if let Some(scoped_ns) = info.ns_usages.get(&ancestor) {
                 for import in scoped_ns {
-                    ns.insert(import.clone());
+                    ns.push(import.clone());
                 }
             }
 
-            // todo: namespace declarations
-            // if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
-            //     let mut new_locals = vec![ns_decl];
-            //     new_locals.extend(local_ns.into_iter().map(|ns| QualifiedNameRef::concat(ns_decl.clone(), ns)));
-            // }
+            // namespace declarations
+            if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
+                // prepend newly found namespace to all the other namespaces we found in our walk
+                // upward, i.e. ["Ns1"] => ["Ns0.Ns1", "Ns0"]
+                local_ns = local_ns.into_iter()
+                    .map(|ns| QualifiedNameRef::concat(ns_decl, ns))
+                    .chain([ns_decl.clone()].into_iter())
+                    .collect();
+            }
 
             i = ancestor;
+        }
+
+        if let Some(fsns) = &info.fsns_decl {
+            local_ns = local_ns.into_iter()
+                .map(|ns| QualifiedNameRef::concat(fsns, ns))
+                .chain([fsns.clone()].into_iter())
+                .collect();
         }
 
         if let Some(c) = container {
             requests.insert(TypeRequest {
                 requester: Id::CsType(c.to_owned()),
                 partial_name: name.to_owned(),
-                scoped_namespaces: ns.iter().map(|n| n.to_owned()).collect(),
+                scoped_namespaces: ns.iter().chain(local_ns.iter()).map(|n| n.to_owned()).collect(),
             });
         }
     }
@@ -170,12 +182,18 @@ mod test {
         let decls = process_declarations(&info).unwrap();
         let ref_types = process_type_usages(&info, &decls);
 
+        for r in &ref_types {
+            for ns in &r.scoped_namespaces {
+                println!("Scoped ns: {ns}");
+            }
+        }
+
         assert_eq!(ref_types, HashSet::from([
             TypeRequest {
                 requester: Id::CsType(QualifiedNameOwned::from("L0.L1.L2.Class2")),
                 partial_name: QualifiedNameOwned::from("L3.Class3"),
                 scoped_namespaces: [
-                    "Ns0", "Ns1", "Ns2",
+                    "Ns2", "Ns1", "Ns0",
                     "L0.L1.L2", "L0.L1", "L0",
                 ].into_iter().map(QualifiedNameOwned::from).collect(),
             }

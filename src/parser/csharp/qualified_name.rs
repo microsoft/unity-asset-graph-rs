@@ -41,12 +41,12 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-pub trait QualifiedNamePart: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Display {
+pub trait QualifiedNamePart: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Display {
     fn name(&self) -> &str;
     fn generics(&self) -> usize;
 }
 
-pub trait QualifiedName: PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Sized + Display {
+pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::Hash + Sized + Display {
     type Part: QualifiedNamePart;
     type Str: Borrow<str>;
 
