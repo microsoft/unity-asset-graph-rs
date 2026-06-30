@@ -41,12 +41,12 @@ fn parse_reader(
 
     // Use the parsed locstrings to create Asset instances
     let assets: Vec<Asset> = locstrings.keys().map(|key| {
-        Asset {
-            id: Id::Loc(key.clone()),
-            asset_type: AssetType::LocString,
-            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
-            ..Default::default()
-        }
+        Asset::new(
+            Id::Loc(key.clone()),
+            AssetType::LocString,
+            None,
+            [Relation::ContainedBy(asset.id.clone())],
+        )
     }).collect();
 
     Ok(assets)

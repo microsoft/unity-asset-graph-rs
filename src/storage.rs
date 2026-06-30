@@ -54,7 +54,7 @@ pub struct DatabaseFile {
 }
 
 impl From<Database> for DatabaseFile {
-    fn from(database: Database) -> Self {
+    fn from(mut database: Database) -> Self {
         Self {
             magic: Magic::try_from(MAGIC_BYTE).unwrap(),
             version: Version::try_from(SER_VERSION).unwrap(),

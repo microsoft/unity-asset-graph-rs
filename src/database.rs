@@ -7,7 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use regex::RegexBuilder;
 use crate::{
-    QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
+    BoundAsset, QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
 };
 
 mod roots;
@@ -46,8 +46,6 @@ pub struct Database {
     roots: HashSet<PathBuf>,
     loc_roots: HashSet<PathBuf>,
     assets: HashMap<Id, Asset>,
-    #[serde(skip)]
-    id_strs: RefCell<HashMap<Id, String>>,
 }
 
 impl Database {
@@ -67,7 +65,6 @@ impl Database {
             roots: HashSet::new(),
             loc_roots: HashSet::new(),
             assets: HashMap::new(),
-            id_strs: RefCell::new(HashMap::new()),
         };
 
         db.add_root_str(root).map(|_| db)
@@ -97,16 +94,15 @@ impl Database {
                 let (rel_id, mut rel_asset) = match self.assets.remove_entry(relation.id()) {
                     Some(e) => e,
                     None => {
-                        let a = Asset {
-                            id: relation.id().clone(),
-                            asset_type: AssetType::BrokenRef,
-                            ..Default::default()
-                        };
+                        let a = Asset::new(
+                            relation.id().clone(), 
+                            AssetType::BrokenRef, 
+                            None, 
+                            [asset.invert_relation(relation)],
+                        );
                         (relation.id().clone(), a)
                     },
                 };
-                // add the back relation to the related asset
-                rel_asset.back_relations.insert(asset.invert_relation(relation));
                 self.assets.insert(rel_id, rel_asset);
             }
             self.assets.insert(asset_id, asset);
@@ -121,20 +117,21 @@ impl Database {
         self.loc_roots.iter()
     }
 
-    pub fn asset(&self, id: &Id) -> Option<&Asset> {
-        self.assets.get(id)
+    pub fn asset<'a>(&'a self, id: &Id) -> Option<BoundAsset<'a>> {
+        self.assets.get(id).map(|a| a.bind(self))
     }
 
     pub fn asset_mut(&mut self, id: &Id) -> Option<&mut Asset> {
         self.assets.get_mut(id)
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = &Asset> {
-        self.assets.values()
+    pub fn assets<'a>(&'a self) -> impl Iterator<Item = BoundAsset<'a>> {
+        self.assets.values().map(|a| a.bind(self))
     }
 
-    pub fn find_assets_by_name(&self, regex: &str) -> Result<impl ExactSizeIterator<Item = &Asset>, DatabaseError> {
-        let re = RegexBuilder::new(regex)
+    pub fn find_assets_by_path<'a>(&'a self, regex: &str) -> Result<impl ExactSizeIterator<Item = BoundAsset<'a>>, DatabaseError> {
+        // correct for path separators
+        let re = RegexBuilder::new(&regex)
             .unicode(false)
             .build()
             .map_err(|e| DatabaseError::Regex(e))?;
@@ -143,7 +140,7 @@ impl Database {
         for a in self.assets.values() {
             if let Some(haystack) = a.path.as_ref().and_then(|p| Some(p.to_string_lossy()))
                 && re.is_match(&haystack) {
-                out.push(a);
+                out.push(a.bind(self));
             }
         }
         Ok(out.into_iter())
@@ -155,22 +152,13 @@ impl Database {
             .build()
             .map_err(|e| DatabaseError::Regex(e))?;
 
-        let mut strmap = self.id_strs.take();
         let mut out = vec![];
         for (id, asset) in self.assets.iter() {
-            let idstr = if let Some(s) = strmap.get(id) {
-                s
-            } else {
-                strmap.insert(id.clone(), id.to_string());
-                strmap.get(id).unwrap()
-            };
-
-            if re.is_match(idstr) {
+            if asset.id_matches(&re) {
                 out.push(asset);
             }
         }
 
-        self.id_strs.replace(strmap);
         Ok(out.into_iter())
     }
 }

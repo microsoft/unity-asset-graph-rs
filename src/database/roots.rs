@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::{PathBuf},
+    path::PathBuf,
     fs,
 };
 use crate::{
@@ -9,16 +9,15 @@ use crate::{
         manifest_json::ManifestJson,
         package_json::PackageJson,
     },
-    util::read_file_no_bom
+    util::{read_file_no_bom},
 };
 use super::{Database, DatabaseError};
 
 impl Database {
     pub fn add_root_str(&mut self, path: &str) -> Result<(), DatabaseError> {
-        let abs_root = match fs::canonicalize(path) {
-            Ok(p) => p,
-            Err(_) => return Err(DatabaseError::BadPath(PathBuf::from(path))),
-        };
+        let abs_root = PathBuf::from(path);
+        let abs_root = abs_root.canonicalize()
+            .map_err(|e| DatabaseError::BadPath(abs_root))?;
         self.add_root(abs_root, &mut HashSet::new())
     }
 

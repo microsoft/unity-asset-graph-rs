@@ -191,17 +191,17 @@ impl Database {
             path.clone()
         };
 
-        let asset = Asset {
-            id: asset_guid,
-            asset_type: if path.is_dir() {
+        let asset = Asset::new(
+            asset_guid,
+            if path.is_dir() {
                 AssetType::Directory
             }
             else {
                 (&rel_path).into()
             },
-            path: Some(rel_path),
-            ..Default::default()
-        };
+            Some(rel_path),
+            [],
+        );
         
         Ok(Some(asset))
     }

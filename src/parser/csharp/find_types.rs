@@ -43,12 +43,12 @@ pub fn find_types(
         })?;
 
     for name in asset_map.values() {
-        def_assets.push(Asset {
-            id: Id::CsType(name.to_owned()),
-            asset_type: AssetType::CsType,
-            relations: HashSet::from([Relation::ContainedBy(asset.id.clone())]),
-            ..Default::default()
-        });
+        def_assets.push(Asset::new(
+            Id::CsType(name.to_owned()),
+            AssetType::CsType,
+            None,
+            [Relation::ContainedBy(asset.id.clone())],
+        ));
     }
 
     let mut b = broker.lock().unwrap();
