@@ -1,3 +1,5 @@
+#![doc = include_str!("../../../README.md")]
+
 mod broken;
 mod build;
 mod info;
@@ -14,7 +16,7 @@ use std::path::PathBuf;
 #[command(version, about, long_about)]
 pub struct CliArgs {
     #[command(subcommand)]
-    pub command: CliCommand,
+    command: CliCommand,
 
     /// Path to the database file
     #[arg(long, short, default_value = "db.bin")]
@@ -22,7 +24,7 @@ pub struct CliArgs {
 }
 
 #[derive(Subcommand)]
-pub enum CliCommand {
+enum CliCommand {
     Build(BuildArgs),
     Info(InfoArgs),
     Unused(UnusedArgs),

@@ -9,6 +9,12 @@ categories = ["command-line-utilities", "game-development"]
 edition = "2024"
 default-run = "uag"
 
+[lib]
+doc = false
+
+[[bin]]
+name = "grammar_path"
+doc = false
 
 [features]
 default = []
