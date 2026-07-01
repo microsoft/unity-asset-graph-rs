@@ -1,28 +1,30 @@
+mod find_types;
+pub mod qualified_name;
 mod queries;
 mod structure;
-mod find_types;
 pub mod type_broker;
-pub mod qualified_name;
 
 #[cfg(feature = "locstring")]
 mod find_locstrings;
 
+use crate::{Asset, parser::ParseError};
 use std::{
     fs::File,
     io::Read,
     path::PathBuf,
-    sync::{Arc, Mutex, LazyLock},
+    sync::{Arc, LazyLock, Mutex},
 };
 use tree_sitter::{Language, Parser};
 use tree_sitter_c_sharp as cs;
-use crate::{Asset, parser::ParseError};
 use type_broker::TypeBroker;
 
-pub static CS_LANG: LazyLock<Language> = LazyLock::new(|| {
-    cs::LANGUAGE.into()
-});
+pub static CS_LANG: LazyLock<Language> = LazyLock::new(|| cs::LANGUAGE.into());
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mutex<TypeBroker>>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(
+    asset: &mut Asset,
+    relative_to: Option<&PathBuf>,
+    broker: &Arc<Mutex<TypeBroker>>,
+) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
         Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
         None => asset.path.as_ref().unwrap(),
@@ -30,20 +32,24 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
 
     let mut file = match File::open(path) {
         Ok(f) => f,
-        Err(e) => return Err(ParseError {
-            path: path.clone(),
-            message: format!("Failed to read C# file: {}", e),
-            inner: Some(Box::new(e)),
-        }),
+        Err(e) => {
+            return Err(ParseError {
+                path: path.clone(),
+                message: format!("Failed to read C# file: {}", e),
+                inner: Some(Box::new(e)),
+            });
+        }
     };
 
     let len = match file.metadata() {
         Ok(meta) => meta.len() as usize,
-        Err(e) => return Err(ParseError {
-            path: path.clone(),
-            message: format!("Failed to read C# file metadata: {}", e),
-            inner: Some(Box::new(e)),
-        }),
+        Err(e) => {
+            return Err(ParseError {
+                path: path.clone(),
+                message: format!("Failed to read C# file metadata: {}", e),
+                inner: Some(Box::new(e)),
+            });
+        }
     };
 
     let mut buf = Vec::with_capacity(len);
@@ -59,24 +65,26 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
 }
 
 fn parse_buffer(
-    buffer: &[u8], 
-    asset: &mut Asset, 
+    buffer: &[u8],
+    asset: &mut Asset,
     path: &PathBuf,
-    broker: &Arc<Mutex<TypeBroker>>
+    broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<Vec<Asset>, ParseError> {
     let mut def_assets = vec![];
-    
+
     // load syntax tree
     let mut parser = Parser::new();
     parser.set_language(&CS_LANG).expect("Error loading C# grammar");
     let tree = parser.parse(buffer, None);
     let tree = match tree {
         Some(t) => t,
-        None => return Err(ParseError {
-            path: path.clone(),
-            message: "Failed to parse C# file".into(),
-            ..Default::default()
-        }),
+        None => {
+            return Err(ParseError {
+                path: path.clone(),
+                message: "Failed to parse C# file".into(),
+                ..Default::default()
+            });
+        }
     };
 
     find_types::find_types(&tree, buffer, asset, &mut def_assets, broker)?;
@@ -90,24 +98,27 @@ fn parse_buffer(
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use tree_sitter::{Node, Point, Tree};
+    use crate::{AssetType, Id, QualifiedNameOwned, Relation};
+    use pretty_assertions::assert_eq;
     use std::{
         collections::HashSet,
         fmt::{Display, Formatter, Result as FResult},
     };
-    use pretty_assertions::assert_eq;
-    use crate::{AssetType, Id, Relation, QualifiedNameOwned};
+    use tree_sitter::{Node, Point, Tree};
 
-    
     pub fn _debug_up(node: Node, buffer: &[u8]) {
         let mut n = Some(node);
         while let Some(node) = n {
             let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
             if text.len() < 100 {
                 println!("{}: {}", node.kind(), text);
-            }
-            else {
-                println!("{}: {}...<{} bytes>", node.kind(), &text[..100], node.end_byte() - node.start_byte() - 100);
+            } else {
+                println!(
+                    "{}: {}...<{} bytes>",
+                    node.kind(),
+                    &text[..100],
+                    node.end_byte() - node.start_byte() - 100
+                );
             }
             n = node.parent();
         }
@@ -121,15 +132,18 @@ pub mod test {
             let text = node.utf8_text(buffer).unwrap().split('\n').next().unwrap();
             if text.len() < 100 {
                 println!("{indent}{kind}: {text}");
-            }
-            else {
-                println!("{indent}{kind}: {}...<{} bytes>", &text[..100], node.end_byte() - node.start_byte() - 100);
+            } else {
+                println!(
+                    "{indent}{kind}: {}...<{} bytes>",
+                    &text[..100],
+                    node.end_byte() - node.start_byte() - 100
+                );
             }
 
             if depth >= max_depth {
                 return;
             }
-            
+
             let mut cursor = node.walk();
             for c in node.children(&mut cursor) {
                 helper(c, buffer, depth + 1, max_depth);
@@ -155,7 +169,9 @@ pub mod test {
 
     impl Display for NodeLike {
         fn fmt(&self, f: &mut Formatter<'_>) -> FResult {
-            write!(f, "{{ {kind} @ ({row},{column})",
+            write!(
+                f,
+                "{{ {kind} @ ({row},{column})",
                 kind = self.kind,
                 row = self.start_position.row,
                 column = self.start_position.column,
@@ -181,21 +197,27 @@ pub mod test {
     pub const NS_TEST_CODE: &[u8] = include_bytes!("./csharp/test/ns_test.cs");
     pub static NS_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
         let mut parser = Parser::new();
-        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser
+            .set_language(&CS_LANG)
+            .expect("Failed to set language, bad lang version");
         parser.parse(NS_TEST_CODE, None).expect("Failed to read code")
     });
 
     pub const TYPE_TEST_CODE: &[u8] = include_bytes!("./csharp/test/type_test.cs");
     pub static TYPE_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
         let mut parser = Parser::new();
-        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser
+            .set_language(&CS_LANG)
+            .expect("Failed to set language, bad lang version");
         parser.parse(TYPE_TEST_CODE, None).expect("Failed to read code")
     });
 
     pub const VAR_TEST_CODE: &[u8] = include_bytes!("./csharp/test/var_test.cs");
     pub static VAR_TEST_TREE: LazyLock<Tree> = LazyLock::new(|| {
         let mut parser = Parser::new();
-        parser.set_language(&CS_LANG).expect("Failed to set language, bad lang version");
+        parser
+            .set_language(&CS_LANG)
+            .expect("Failed to set language, bad lang version");
         parser.parse(VAR_TEST_CODE, None).expect("Failed to read code")
     });
 }

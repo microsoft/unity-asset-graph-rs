@@ -1,24 +1,16 @@
-use std::{
-    io::BufRead,
-    path::PathBuf,
-    sync::LazyLock,
-};
-use regex::Regex;
-use uuid::Uuid;
+#[cfg(feature = "locstring")]
+use crate::parser::{loc_override::LocOverrideParser, loc_text::LocStringParser};
 use crate::{
     asset::{Asset, Relation},
     id::Id,
     parser::ParseError,
 };
-#[cfg(feature = "locstring")]
-use crate::parser::{
-    loc_text::LocStringParser,
-    loc_override::LocOverrideParser,
-};
+use regex::Regex;
+use std::{io::BufRead, path::PathBuf, sync::LazyLock};
+use uuid::Uuid;
 
-static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex")
-});
+static ID_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex"));
 
 pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
@@ -28,15 +20,17 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
 
     let mut reader = match crate::util::read_file_no_bom(path) {
         Ok(file) => file,
-        Err(e) => return Err(ParseError::new(&path, format!("Failed to read prefab file: {}", e))),
+        Err(e) => {
+            return Err(ParseError::new(&path, format!("Failed to read prefab file: {}", e)));
+        }
     };
 
     parse_reader(&mut reader, asset, relative_to)
 }
 
 fn parse_reader(
-    reader: &mut dyn BufRead, 
-    asset: &mut Asset, 
+    reader: &mut dyn BufRead,
+    asset: &mut Asset,
     relative_to: Option<&PathBuf>,
 ) -> Result<Vec<Asset>, ParseError> {
     let path = match relative_to {
@@ -62,7 +56,7 @@ fn parse_reader(
                 asset.relations.insert(Relation::Uses(id));
                 loctext_parser = LocStringParser::Start;
             }
-            
+
             locoverride_parser = locoverride_parser.update(&line);
             if let LocOverrideParser::PropertyValue(value) = locoverride_parser {
                 asset.relations.insert(Relation::Uses(Id::Loc(value)));
@@ -160,10 +154,26 @@ PrefabInstance:
         let result = parse_reader(&mut reader, &mut asset, None);
 
         assert!(result.is_ok());
-        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap()))));
-        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap()))));
-        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("people_panel_people_label".into()))));
-        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into()))));
-        assert!(asset.relations.contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into()))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(
+            Uuid::parse_str("7c77678171dd7a24ead5c598179e6378").unwrap()
+        ))));
+        assert!(asset.relations.contains(&Relation::Uses(Id::Guid(
+            Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap()
+        ))));
+        assert!(
+            asset
+                .relations
+                .contains(&Relation::Uses(Id::Loc("people_panel_people_label".into())))
+        );
+        assert!(
+            asset
+                .relations
+                .contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into())))
+        );
+        assert!(
+            asset
+                .relations
+                .contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into())))
+        );
     }
 }

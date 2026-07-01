@@ -1,10 +1,8 @@
-use std::sync::LazyLock;
-use regex::Regex;
 use crate::id::Id;
+use regex::Regex;
+use std::sync::LazyLock;
 
-static KEY_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^    key: (.+)$").expect("Failed to compile key regex")
-});
+static KEY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^    key: (.+)$").expect("Failed to compile key regex"));
 
 #[derive(Debug, Clone)]
 pub enum LocStringParser {
@@ -21,34 +19,27 @@ impl LocStringParser {
     pub fn update(self, line: &str) -> Self {
         let _orig = self.clone();
         let ret = match self {
-            LocStringParser::Start if line.starts_with("---") => {
-                LocStringParser::File
-            },
-            LocStringParser::File if line == "MonoBehaviour:" => {
-                LocStringParser::MonoBehaviour
-            },
-            LocStringParser::MonoBehaviour if line == "  m_Script: {fileID: 11500000, guid: 05503c2c5cf7b7f45bec1113802f99a0, type: 3}" => {
+            LocStringParser::Start if line.starts_with("---") => LocStringParser::File,
+            LocStringParser::File if line == "MonoBehaviour:" => LocStringParser::MonoBehaviour,
+            LocStringParser::MonoBehaviour
+                if line == "  m_Script: {fileID: 11500000, guid: 05503c2c5cf7b7f45bec1113802f99a0, type: 3}" =>
+            {
                 LocStringParser::LocalizedText
-            },
-            LocStringParser::LocalizedText if line == "  localizedString:" => {
-                LocStringParser::LocalizedString
-            },
-            LocStringParser::LocalizedString if line == "    keepUnlocalized: 1" => {
-                LocStringParser::LocStringNoKey
-            },
+            }
+            LocStringParser::LocalizedText if line == "  localizedString:" => LocStringParser::LocalizedString,
+            LocStringParser::LocalizedString if line == "    keepUnlocalized: 1" => LocStringParser::LocStringNoKey,
             LocStringParser::LocalizedString => {
                 if let Some(captures) = KEY_RE.captures(line)
                     && let Some(m) = captures.get(1)
                 {
                     LocStringParser::LocStringKey(Id::Loc(m.as_str().into()))
-                }
-                else {
+                } else {
                     LocStringParser::LocalizedString
                 }
-            },
+            }
             _ => self,
         };
-        
+
         //println!("{:?} -> {:?}: {line}", &_orig, &ret);
         ret
     }
@@ -139,14 +130,14 @@ MonoBehaviour:
             parser = parser.update(line);
 
             match parser {
-                LocStringParser::Start if i < 2 => {},
-                LocStringParser::File if i < 9 => {},
-                LocStringParser::MonoBehaviour if i < 17 => {},
-                LocStringParser::LocalizedText if i < 20 => {},
-                LocStringParser::LocalizedString if i < 22 => {},
+                LocStringParser::Start if i < 2 => {}
+                LocStringParser::File if i < 9 => {}
+                LocStringParser::MonoBehaviour if i < 17 => {}
+                LocStringParser::LocalizedText if i < 20 => {}
+                LocStringParser::LocalizedString if i < 22 => {}
                 LocStringParser::LocStringKey(Id::Loc(ref key)) => {
                     assert_eq!(key, "people_panel_people_label");
-                },
+                }
                 _ => panic!("Unexpected parser state: {:?} at line {i}", parser),
             };
         }
@@ -159,10 +150,10 @@ MonoBehaviour:
             parser = parser.update(line);
 
             match parser {
-                LocStringParser::Start if i < 2 => {},
-                LocStringParser::File if i < 3 => {},
-                LocStringParser::MonoBehaviour if i < 11 => {},
-                LocStringParser::LocalizedText => {},
+                LocStringParser::Start if i < 2 => {}
+                LocStringParser::File if i < 3 => {}
+                LocStringParser::MonoBehaviour if i < 11 => {}
+                LocStringParser::LocalizedText => {}
                 _ => panic!("Unexpected parser state: {:?} at line {i}", parser),
             };
         }
@@ -175,12 +166,12 @@ MonoBehaviour:
             parser = parser.update(line);
 
             match parser {
-                LocStringParser::Start if i < 2 => {},
-                LocStringParser::File if i < 3 => {},
-                LocStringParser::MonoBehaviour if i < 11 => {},
-                LocStringParser::LocalizedText if i < 14 => {},
-                LocStringParser::LocalizedString if i < 15 => {},
-                LocStringParser::LocStringNoKey => {},
+                LocStringParser::Start if i < 2 => {}
+                LocStringParser::File if i < 3 => {}
+                LocStringParser::MonoBehaviour if i < 11 => {}
+                LocStringParser::LocalizedText if i < 14 => {}
+                LocStringParser::LocalizedString if i < 15 => {}
+                LocStringParser::LocStringNoKey => {}
                 _ => panic!("Unexpected parser state: {:?} at line {i}", parser),
             };
         }

@@ -1,15 +1,13 @@
+use crate::{
+    Asset, Database, DatabaseError,
+    parser::{self, TypeBroker},
+};
 use std::{
     mem,
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
-};
-use crate::{
-    Asset,
-    Database, 
-    DatabaseError,
-    parser::{self, TypeBroker},
 };
 
 const THREADS: usize = 4;
@@ -19,9 +17,10 @@ impl Database {
         let asset_count = self.assets.len();
         let assets: Arc<Mutex<Vec<Asset>>> = Arc::new(Mutex::new(
             mem::take(&mut self.assets)
-            .into_values()
-            .filter(|a| a.path.is_some())
-            .collect()));
+                .into_values()
+                .filter(|a| a.path.is_some())
+                .collect(),
+        ));
 
         let broker = Arc::new(Mutex::new(TypeBroker::new()));
 
@@ -80,12 +79,12 @@ impl Database {
                 Some(a) => {
                     retries = 0;
                     a
-                },
+                }
                 None => {
                     retries += 1;
                     thread::sleep(Duration::from_millis(50));
                     continue;
-                },
+                }
             };
 
             match parser::parse(&mut asset, relative_to, &broker) {
@@ -98,14 +97,14 @@ impl Database {
                             eprintln!("Error sending asset: {}", e);
                         }
                     }
-                },
+                }
                 Err(e) => {
                     let err = DatabaseError::parse(asset.path.unwrap(), "Error parsing asset");
                     if let Err(e) = err_tx.send(err) {
                         eprintln!("Error sending error: {}", e);
                         continue;
                     }
-                },
+                }
             };
 
             thread::yield_now();

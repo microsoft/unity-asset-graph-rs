@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use std::{fs::File, path::Path, error::Error, io::Write};
 use crate::database::Database;
+use serde::{Deserialize, Serialize};
+use std::{error::Error, fs::File, io::Write, path::Path};
 
 const MAGIC_BYTE: u8 = 0xae;
 const SER_VERSION: u8 = 1;

@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
-    error::Error, hash::RandomState,
+    error::Error,
+    hash::RandomState,
 };
 use tree_sitter_c_sharp::NODE_TYPES;
 
@@ -35,7 +36,8 @@ struct Field {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let types: Vec<Type> = serde_json::from_str(NODE_TYPES)?;
-    let types: HashMap<String, Type, RandomState> = HashMap::from_iter(types.into_iter().map(|t| (t.r#type.clone(), t)));
+    let types: HashMap<String, Type, RandomState> =
+        HashMap::from_iter(types.into_iter().map(|t| (t.r#type.clone(), t)));
 
     let mut backmap = HashMap::new();
     for t in types.values() {
@@ -58,12 +60,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         &["identifier"],
         &[
             "expression",
-            "preproc_if", "preproc_elif", "preproc_else",
-            "block", "type", "type_declaration", "declaration", "function_pointer_type",
-            "lambda_expression", "anonymous_method_expression", "local_function_statement",
+            "preproc_if",
+            "preproc_elif",
+            "preproc_else",
+            "block",
+            "type",
+            "type_declaration",
+            "declaration",
+            "function_pointer_type",
+            "lambda_expression",
+            "anonymous_method_expression",
+            "local_function_statement",
         ],
-        &types, 
-        &backmap);
+        &types,
+        &backmap,
+    );
 
     for p in &paths {
         println!("{:?}", p);

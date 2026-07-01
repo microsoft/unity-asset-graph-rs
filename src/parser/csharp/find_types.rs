@@ -1,46 +1,39 @@
+use crate::{
+    Asset, AssetType, Id, QualifiedName, Relation,
+    parser::{ParseError, TypeBroker},
+};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, LazyLock},
+    sync::{Arc, LazyLock, Mutex},
 };
-use tree_sitter::{
-    Node,
-    Query,
-    QueryCursor, 
-    StreamingIterator, 
-    Tree,
-};
-use crate::{
-    Asset, AssetType, Id, QualifiedName, Relation, parser::{ParseError, TypeBroker}
-};
+use tree_sitter::{Node, Query, QueryCursor, StreamingIterator, Tree};
 
 use super::{
-    qualified_name::{QualifiedNameOwned, QualifiedNameRef, Error as NameError},
-    structure::*,
+    qualified_name::{Error as NameError, QualifiedNameOwned, QualifiedNameRef},
     queries::kinds as k,
+    structure::*,
     type_broker::TypeRequest,
 };
 
 /// Find type declarations and usages in the given syntax tree, updating the provided asset and type broker accordingly.
 pub fn find_types(
-    tree: &Tree, 
-    buffer: &[u8], 
-    asset: &mut Asset, 
-    def_assets: &mut Vec<Asset>, 
+    tree: &Tree,
+    buffer: &[u8],
+    asset: &mut Asset,
+    def_assets: &mut Vec<Asset>,
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<(), ParseError> {
-    let info = evaluate_structure(tree, buffer)
-        .map_err(|e| ParseError {
-            path: asset.path.as_ref().unwrap().clone(),
-            message: "Failed to analyze structure of C# file".to_string(),
-            inner: Some(Box::new(e)),
-        })?;
+    let info = evaluate_structure(tree, buffer).map_err(|e| ParseError {
+        path: asset.path.as_ref().unwrap().clone(),
+        message: "Failed to analyze structure of C# file".to_string(),
+        inner: Some(Box::new(e)),
+    })?;
 
-    let asset_map = process_declarations(&info)
-        .map_err(|e| ParseError {
-            path: asset.path.as_ref().unwrap().clone(),
-            message: "Failed to qualify type declaration names".to_string(),
-            inner: Some(Box::new(e)),
-        })?;
+    let asset_map = process_declarations(&info).map_err(|e| ParseError {
+        path: asset.path.as_ref().unwrap().clone(),
+        message: "Failed to qualify type declaration names".to_string(),
+        inner: Some(Box::new(e)),
+    })?;
 
     for name in asset_map.values() {
         def_assets.push(Asset::new(
@@ -59,7 +52,9 @@ pub fn find_types(
     Ok(())
 }
 
-fn process_declarations<'t, 'b>(info: &StructureInfo<'b, 't>) -> Result<HashMap<Node<'t>, QualifiedNameRef<'b>>, NameError> {
+fn process_declarations<'t, 'b>(
+    info: &StructureInfo<'b, 't>,
+) -> Result<HashMap<Node<'t>, QualifiedNameRef<'b>>, NameError> {
     // identify non-nested types, create assets for them
     let mut asset_map = HashMap::new();
 
@@ -78,7 +73,7 @@ fn process_declarations<'t, 'b>(info: &StructureInfo<'b, 't>) -> Result<HashMap<
             }
             parent = p;
         }
-        
+
         if let Some(ref fsns) = info.fsns_decl {
             full_name = QualifiedNameRef::try_concat(fsns.clone(), full_name)?;
         }
@@ -90,7 +85,8 @@ fn process_declarations<'t, 'b>(info: &StructureInfo<'b, 't>) -> Result<HashMap<
 }
 
 fn process_type_usages<'b, 't>(
-    info: &StructureInfo<'b, 't>, decls: &HashMap<Node<'t>, QualifiedNameRef<'b>>,
+    info: &StructureInfo<'b, 't>,
+    decls: &HashMap<Node<'t>, QualifiedNameRef<'b>>,
 ) -> HashSet<TypeRequest> {
     let mut requests = HashSet::new();
 
@@ -104,10 +100,10 @@ fn process_type_usages<'b, 't>(
         // walk up the hierarchy looking for all the stuff
         let mut i = *node;
         while let Some(ancestor) = i.parent() {
-
             // skip if type is locally declared
             if let Some(scope_decls) = info.type_decl_names.get(&ancestor)
-            && scope_decls.contains(&name) {
+                && scope_decls.contains(&name)
+            {
                 continue 'usages;
             }
 
@@ -120,9 +116,9 @@ fn process_type_usages<'b, 't>(
                         partial_name: use_name.to_owned(),
                         scoped_namespaces: vec![],
                     });
-                }
-                else if let Some(scope_aliases) = info.aliases.get(&ancestor)
-                && let Some(sub) = scope_aliases.get(&QualifiedNameRef::from(ns_alias)) {
+                } else if let Some(scope_aliases) = info.aliases.get(&ancestor)
+                    && let Some(sub) = scope_aliases.get(&QualifiedNameRef::from(ns_alias))
+                {
                     use_name.resolve_alias(sub.clone());
                 }
             }
@@ -143,7 +139,8 @@ fn process_type_usages<'b, 't>(
             if let Some(ns_decl) = info.ns_decl_nodes.get(&ancestor) {
                 // prepend newly found namespace to all the other namespaces we found in our walk
                 // upward, i.e. ["Ns1"] => ["Ns0.Ns1", "Ns0"]
-                local_ns = local_ns.into_iter()
+                local_ns = local_ns
+                    .into_iter()
                     .map(|ns| QualifiedNameRef::concat(ns_decl, ns))
                     .chain([ns_decl.clone()].into_iter())
                     .collect();
@@ -153,7 +150,8 @@ fn process_type_usages<'b, 't>(
         }
 
         if let Some(fsns) = &info.fsns_decl {
-            local_ns = local_ns.into_iter()
+            local_ns = local_ns
+                .into_iter()
                 .map(|ns| QualifiedNameRef::concat(fsns, ns))
                 .chain([fsns.clone()].into_iter())
                 .collect();
@@ -173,8 +171,8 @@ fn process_type_usages<'b, 't>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use super::super::test::*;
+    use super::*;
 
     #[test]
     fn type_usages_ns() {
@@ -188,15 +186,16 @@ mod test {
             }
         }
 
-        assert_eq!(ref_types, HashSet::from([
-            TypeRequest {
+        assert_eq!(
+            ref_types,
+            HashSet::from([TypeRequest {
                 requester: Id::CsType(QualifiedNameOwned::from("L0.L1.L2.Class2")),
                 partial_name: QualifiedNameOwned::from("L3.Class3"),
-                scoped_namespaces: [
-                    "Ns2", "Ns1", "Ns0",
-                    "L0.L1.L2", "L0.L1", "L0",
-                ].into_iter().map(QualifiedNameOwned::from).collect(),
-            }
-        ]));
+                scoped_namespaces: ["Ns2", "Ns1", "Ns0", "L0.L1.L2", "L0.L1", "L0",]
+                    .into_iter()
+                    .map(QualifiedNameOwned::from)
+                    .collect(),
+            }])
+        );
     }
 }

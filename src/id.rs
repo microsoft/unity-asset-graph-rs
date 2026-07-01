@@ -1,7 +1,7 @@
-use std::fmt::{Display, Formatter, Result};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use crate::parser::QualifiedNameOwned;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter, Result};
+use uuid::Uuid;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Serialize, Deserialize, Default)]
 pub enum Id {

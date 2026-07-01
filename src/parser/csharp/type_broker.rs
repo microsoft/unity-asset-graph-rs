@@ -1,9 +1,7 @@
-use std::{
-    cell::RefCell, collections::HashSet, fmt::Display,
-};
-use serde::{Serialize, Deserialize};
-use crate::{Database, Id, Relation, parser::csharp::qualified_name::QualifiedNameSearchTree};
 use super::qualified_name::{QualifiedName, QualifiedNameOwned, QualifiedNamePart, QualifiedNameRef};
+use crate::{Database, Id, Relation, parser::csharp::qualified_name::QualifiedNameSearchTree};
+use serde::{Deserialize, Serialize};
+use std::{cell::RefCell, collections::HashSet, fmt::Display};
 
 /// A reference to a type within the file being parsed. May be locally declared, fully qualified, or ambiguous and need brokering.
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -19,7 +17,9 @@ pub struct TypeRequest {
 impl TypeRequest {
     /// Determines if the given type ID satisfies this type request.
     pub fn satisfied_by(&self, type_id: &Id) -> bool {
-        let eeb = Id::CsType(QualifiedNameOwned::from("Microsoft.Teams.Immersive.EventExperience.EventExperienceBoot"));
+        let eeb = Id::CsType(QualifiedNameOwned::from(
+            "Microsoft.Teams.Immersive.EventExperience.EventExperienceBoot",
+        ));
         let roster = QualifiedNameOwned::from("IRosterProvider");
         if let Id::CsType(fqn) = type_id {
             let fqn = QualifiedNameRef::from(fqn);
@@ -70,7 +70,12 @@ impl TypeBroker {
         }
     }
 
-    pub fn request(&mut self, requester: &Id, type_name: QualifiedNameOwned, scoped_namespaces: impl IntoIterator<Item=QualifiedNameOwned>) {
+    pub fn request(
+        &mut self,
+        requester: &Id,
+        type_name: QualifiedNameOwned,
+        scoped_namespaces: impl IntoIterator<Item = QualifiedNameOwned>,
+    ) {
         self.requests.insert(TypeRequest {
             requester: requester.clone(),
             partial_name: type_name,
@@ -86,7 +91,7 @@ impl TypeBroker {
         &self.requests
     }
 
-    pub fn fulfill<'a>(&mut self, ids: impl ExactSizeIterator<Item=&'a Id>, database: &mut Database) {
+    pub fn fulfill<'a>(&mut self, ids: impl ExactSizeIterator<Item = &'a Id>, database: &mut Database) {
         let tree = ids
             .filter_map(|id| {
                 if let Id::CsType(name) = id {
@@ -99,19 +104,28 @@ impl TypeBroker {
 
         let mut matched_types = 0u32;
         print!("Matched types: {}", matched_types);
-        self.requests.extract_if(|req| {
-            for ns in &req.scoped_namespaces {
-                if let Some(tree) = tree.get(ns) && tree.contains(&req.partial_name) {
-                    if let Some(asset) = database.asset_mut(&req.requester) {
-                        asset.relations.insert(Relation::Uses(Id::CsType(QualifiedNameOwned::concat(ns, &req.partial_name))));
+        self.requests
+            .extract_if(|req| {
+                for ns in &req.scoped_namespaces {
+                    if let Some(tree) = tree.get(ns)
+                        && tree.contains(&req.partial_name)
+                    {
+                        if let Some(asset) = database.asset_mut(&req.requester) {
+                            asset
+                                .relations
+                                .insert(Relation::Uses(Id::CsType(QualifiedNameOwned::concat(
+                                    ns,
+                                    &req.partial_name,
+                                ))));
+                        }
+                        matched_types += 1;
+                        print!("\rMatched types: {}", matched_types);
+                        return true;
                     }
-                    matched_types += 1;
-                    print!("\rMatched types: {}", matched_types);
-                    return true;
                 }
-            }
-            false
-        }).collect::<Vec<_>>();
+                false
+            })
+            .collect::<Vec<_>>();
         println!();
     }
 }

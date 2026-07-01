@@ -1,13 +1,15 @@
-use std::{
-    collections::HashSet,
-    fmt::{Display, Formatter, Result},
-    path::PathBuf,
-    cell::RefCell,
+use crate::{
+    asset_type::AssetType,
+    database::{AssetFilter, Database},
+    id::Id,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use crate::{
-    asset_type::AssetType, database::{AssetFilter, Database}, id::Id,
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    fmt::{Display, Formatter, Result},
+    path::PathBuf,
 };
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone)]
@@ -39,13 +41,11 @@ impl Relation {
     }
 
     pub fn bind<'a>(&'a self, db: &'a Database) -> Option<BoundRelation<'a>> {
-        db.asset(self.id()).map(|a| {
-            match self {
-                Self::Uses(id) => BoundRelation::Uses(a),
-                Self::UsedBy(id) => BoundRelation::UsedBy(a),
-                Self::Contains(id) => BoundRelation::Contains(a),
-                Self::ContainedBy(id) => BoundRelation::ContainedBy(a),
-            }
+        db.asset(self.id()).map(|a| match self {
+            Self::Uses(id) => BoundRelation::Uses(a),
+            Self::UsedBy(id) => BoundRelation::UsedBy(a),
+            Self::Contains(id) => BoundRelation::Contains(a),
+            Self::ContainedBy(id) => BoundRelation::ContainedBy(a),
         })
     }
 }
@@ -114,7 +114,7 @@ pub struct Asset {
 }
 
 impl Asset {
-    pub fn new(id: Id, typ: AssetType, path: Option<PathBuf>, relations: impl IntoIterator<Item=Relation>) -> Self {
+    pub fn new(id: Id, typ: AssetType, path: Option<PathBuf>, relations: impl IntoIterator<Item = Relation>) -> Self {
         Self {
             id,
             asset_type: typ,
@@ -184,7 +184,7 @@ impl<'a> BoundAsset<'a> {
         }
     }
 
-    pub fn unindent(self) -> Self{
+    pub fn unindent(self) -> Self {
         Self {
             asset: self.asset,
             db: self.db,
@@ -221,10 +221,12 @@ impl<'a> BoundAsset<'a> {
     }
 
     pub fn path_matches(&self, regex: &AssetFilter) -> bool {
-        self.path().map(|p| regex.matches(&p.to_string_lossy())).unwrap_or(false)
+        self.path()
+            .map(|p| regex.matches(&p.to_string_lossy()))
+            .unwrap_or(false)
     }
 
-    pub fn relations_iter(&self) -> impl Iterator<Item=BoundRelation<'a>> {
+    pub fn relations_iter(&self) -> impl Iterator<Item = BoundRelation<'a>> {
         self.asset.relations_iter().filter_map(|r| r.bind(self.db))
     }
 
@@ -235,8 +237,13 @@ impl<'a> BoundAsset<'a> {
         }
     }
 
-    pub fn display_full_filtered<'b>(&'b self, filter: impl Fn(&BoundRelation) -> bool + 'b) -> BoundAssetFullDisplay<'a, 'b>
-    where 'a: 'b {
+    pub fn display_full_filtered<'b>(
+        &'b self,
+        filter: impl Fn(&BoundRelation) -> bool + 'b,
+    ) -> BoundAssetFullDisplay<'a, 'b>
+    where
+        'a: 'b,
+    {
         BoundAssetFullDisplay {
             asset: self,
             ref_filter: Box::new(filter),
@@ -248,7 +255,9 @@ impl<'a> BoundAsset<'a> {
     }
 
     pub fn display_short<'b>(&'b self) -> BoundAssetShortDisplay<'a, 'b>
-    where 'a: 'b {
+    where
+        'a: 'b,
+    {
         BoundAssetShortDisplay(self)
     }
 }
@@ -285,7 +294,9 @@ pub struct BoundAssetFullDisplay<'a, 'b> {
 impl BoundAssetFullDisplay<'_, '_> {
     fn fmt_relation(&self, f: &mut Formatter<'_>, relation: Relation) -> Result {
         let indent_str = "  ".repeat(self.asset.indent + 1);
-        let mut deps: Vec<_> = self.asset.relations_iter()
+        let mut deps: Vec<_> = self
+            .asset
+            .relations_iter()
             .filter_map(|r| {
                 if r.matches_type(&relation).is_some() {
                     if (self.ref_filter)(&r) {
@@ -296,7 +307,8 @@ impl BoundAssetFullDisplay<'_, '_> {
                 } else {
                     None
                 }
-            }).collect();
+            })
+            .collect();
         deps.sort();
 
         if deps.len() > 0 {
@@ -334,14 +346,18 @@ impl Display for BoundAssetShortDisplay<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match (self.0.id(), self.0.path()) {
             (Id::CsType(name), Some(p)) => {
-                write!(f, "{name} in {p}", p = p.file_name().expect("Bad path").to_str().expect("Bad path"))
-            },
+                write!(
+                    f,
+                    "{name} in {p}",
+                    p = p.file_name().expect("Bad path").to_str().expect("Bad path")
+                )
+            }
             (_, Some(p)) => {
                 write!(f, "{}", p.display())
-            },
+            }
             _ => {
                 write!(f, "{}", self.0.id())
-            },
+            }
         }
     }
 }

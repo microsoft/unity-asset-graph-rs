@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tree_sitter::{Node};
 use std::fmt::{Display, Formatter, Result as FResult};
+use tree_sitter::Node;
 
-use super::{Error, GENERIC_NAMES, generic_args_count_from_str, QualifiedName, NamePartRef, QualifiedNameRef, QualifiedNamePart};
+use super::{
+    Error, GENERIC_NAMES, NamePartRef, QualifiedName, QualifiedNamePart, QualifiedNameRef, generic_args_count_from_str,
+};
 
 #[derive(Debug, Clone, Eq, Ord, Hash, Serialize, Deserialize)]
 pub struct NamePart {
@@ -57,14 +59,23 @@ impl From<&str> for NamePart {
     fn from(value: &str) -> Self {
         if let Some(open_index) = value.find('<') {
             let (n, g) = value.split_at(open_index);
-            Self { name: n.to_string(), generics: generic_args_count_from_str(g) }
+            Self {
+                name: n.to_string(),
+                generics: generic_args_count_from_str(g),
+            }
         } else {
-            Self { name: value.to_string(), generics: 0 }
+            Self {
+                name: value.to_string(),
+                generics: 0,
+            }
         }
     }
 }
 
-impl<T> PartialEq<T> for NamePart where T: QualifiedNamePart {
+impl<T> PartialEq<T> for NamePart
+where
+    T: QualifiedNamePart,
+{
     fn eq(&self, other: &T) -> bool {
         &self.name == other.name() && self.generics == other.generics()
     }
@@ -81,9 +92,17 @@ impl PartialEq<str> for NamePart {
     }
 }
 
-impl<T> PartialOrd<T> for NamePart where T: QualifiedNamePart {
+impl<T> PartialOrd<T> for NamePart
+where
+    T: QualifiedNamePart,
+{
     fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
-        Some(self.name.as_str().cmp(other.name()).then(self.generics.cmp(&other.generics())))
+        Some(
+            self.name
+                .as_str()
+                .cmp(other.name())
+                .then(self.generics.cmp(&other.generics())),
+        )
     }
 }
 
@@ -127,8 +146,6 @@ impl QualifiedNameOwned {
             parts: start.parts.into_iter().chain(end.parts.into_iter()).collect(),
         }
     }
-
-
 }
 
 impl QualifiedName for QualifiedNameOwned {
@@ -146,12 +163,15 @@ impl QualifiedName for QualifiedNameOwned {
         self.alias.as_ref()
     }
 
-    fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part> {
+    fn parts(&self) -> impl ExactSizeIterator<Item = &Self::Part> {
         self.parts.iter()
     }
 
     fn split_off(&mut self, index: usize) -> Self {
-        Self { parts: self.parts.split_off(index), ..Default::default() }
+        Self {
+            parts: self.parts.split_off(index),
+            ..Default::default()
+        }
     }
 
     fn resolve_alias(&mut self, namespace: Self) {
@@ -165,10 +185,16 @@ impl QualifiedName for QualifiedNameOwned {
 }
 
 impl<'a, T, P, S> PartialEq<T> for QualifiedNameOwned
-where T: QualifiedName<Part=P, Str=S>, P: PartialEq<NamePart>, S: PartialEq<String> {
+where
+    T: QualifiedName<Part = P, Str = S>,
+    P: PartialEq<NamePart>,
+    S: PartialEq<String>,
+{
     fn eq(&self, other: &T) -> bool {
         if let Some(a) = &self.alias {
-            if let Some(o) = other.alias() && o != a {
+            if let Some(o) = other.alias()
+                && o != a
+            {
                 return false;
             }
         }
@@ -177,10 +203,17 @@ where T: QualifiedName<Part=P, Str=S>, P: PartialEq<NamePart>, S: PartialEq<Stri
 }
 
 impl<T, P, S> PartialOrd<T> for QualifiedNameOwned
-where T: QualifiedName<Part=P, Str=S>, P: PartialOrd<NamePart>, S: PartialOrd<String> {
+where
+    T: QualifiedName<Part = P, Str = S>,
+    P: PartialOrd<NamePart>,
+    S: PartialOrd<String>,
+{
     fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
-        other.alias().into_iter().partial_cmp(&self.alias)
-        .and(other.parts().partial_cmp(self.parts.iter()))
+        other
+            .alias()
+            .into_iter()
+            .partial_cmp(&self.alias)
+            .and(other.parts().partial_cmp(self.parts.iter()))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::csharp::qualified_name::{QualifiedName, QualifiedNameRef, NamePartRef};
+use crate::parser::csharp::qualified_name::{NamePartRef, QualifiedName, QualifiedNameRef};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QualifiedNameSearchTree<'a> {
@@ -62,7 +62,9 @@ impl<'a> QualifiedNameSearchTree<'a> {
     }
 
     pub fn get<'b>(&self, name: impl Into<QualifiedNameRef<'b>>) -> Option<&Self>
-    where 'b: 'a {
+    where
+        'b: 'a,
+    {
         let name = name.into();
         if name.len() == 0 {
             Some(self)
@@ -93,7 +95,9 @@ impl<'a> QualifiedNameSearchTree<'a> {
 }
 
 impl<'a, T> FromIterator<T> for QualifiedNameSearchTree<'a>
-where T: Into<QualifiedNameRef<'a>> {
+where
+    T: Into<QualifiedNameRef<'a>>,
+{
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut tree = Self::new();
         for name in iter {
@@ -114,15 +118,28 @@ mod test {
         assert!(tree.insert("A.B.Z"));
         assert!(tree.insert("A.X"));
 
-        assert_eq!(&tree, &QualifiedNameSearchTree { names: HashMap::from_iter([
-            (NamePartRef::from("A"), Box::new(QualifiedNameSearchTree { names: HashMap::from_iter([
-                (NamePartRef::from("B"), Box::new(QualifiedNameSearchTree { names: HashMap::from_iter([
-                    (NamePartRef::from("C"), Box::new(QualifiedNameSearchTree::new())),
-                    (NamePartRef::from("Z"), Box::new(QualifiedNameSearchTree::new())),
-                ])})),
-                (NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),
-            ])})),
-        ])});
+        assert_eq!(
+            &tree,
+            &QualifiedNameSearchTree {
+                names: HashMap::from_iter([(
+                    NamePartRef::from("A"),
+                    Box::new(QualifiedNameSearchTree {
+                        names: HashMap::from_iter([
+                            (
+                                NamePartRef::from("B"),
+                                Box::new(QualifiedNameSearchTree {
+                                    names: HashMap::from_iter([
+                                        (NamePartRef::from("C"), Box::new(QualifiedNameSearchTree::new())),
+                                        (NamePartRef::from("Z"), Box::new(QualifiedNameSearchTree::new())),
+                                    ])
+                                })
+                            ),
+                            (NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),
+                        ])
+                    })
+                ),])
+            }
+        );
     }
 
     #[test]
@@ -133,21 +150,43 @@ mod test {
         assert!(!tree.remove("A"));
 
         assert!(tree.remove("A.B.C"));
-        assert_eq!(&tree, &QualifiedNameSearchTree { names: HashMap::from_iter([
-            (NamePartRef::from("A"), Box::new(QualifiedNameSearchTree { names: HashMap::from_iter([
-                (NamePartRef::from("B"), Box::new(QualifiedNameSearchTree { names: HashMap::from_iter([
-                    (NamePartRef::from("Z"), Box::new(QualifiedNameSearchTree::new())),
-                ])})),
-                (NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),
-            ])})),
-        ])});
+        assert_eq!(
+            &tree,
+            &QualifiedNameSearchTree {
+                names: HashMap::from_iter([(
+                    NamePartRef::from("A"),
+                    Box::new(QualifiedNameSearchTree {
+                        names: HashMap::from_iter([
+                            (
+                                NamePartRef::from("B"),
+                                Box::new(QualifiedNameSearchTree {
+                                    names: HashMap::from_iter([(
+                                        NamePartRef::from("Z"),
+                                        Box::new(QualifiedNameSearchTree::new())
+                                    ),])
+                                })
+                            ),
+                            (NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),
+                        ])
+                    })
+                ),])
+            }
+        );
 
         assert!(tree.remove("A.B.Z"));
-        assert_eq!(&tree, &QualifiedNameSearchTree { names: HashMap::from_iter([
-            (NamePartRef::from("A"), Box::new(QualifiedNameSearchTree { names: HashMap::from_iter([
-                (NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),
-            ])})),
-        ])});
+        assert_eq!(
+            &tree,
+            &QualifiedNameSearchTree {
+                names: HashMap::from_iter([(
+                    NamePartRef::from("A"),
+                    Box::new(QualifiedNameSearchTree {
+                        names: HashMap::from_iter(
+                            [(NamePartRef::from("X"), Box::new(QualifiedNameSearchTree::new())),]
+                        )
+                    })
+                ),])
+            }
+        );
     }
 
     #[test]

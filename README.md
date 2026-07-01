@@ -1,34 +1,12 @@
-# asset-graph-rs
+# unity-asset-graph-rs
 
-Build a database from a Unity project's assets and packages, and query it.
+Query relationships between Unity engine assets/scripts
 
-## Usage
+## Get started
 
-Before 
-```bash
-$ cargo run -- --help
-Usage: unity-asset-graph-rs.exe [OPTIONS] <COMMAND>
-
-Commands:
-  find-assets       Find assets in a Unity project directory and create a database file
-  resolve-assets    Scan all assets in the database to identify their dependencies
-  info              Get information about a specific asset by ID or name
-  find-unused       Find unused assets in the database
-  find-broken-refs  Find broken references in the database
-  help              Print this message or the help of the given subcommand(s)
-
-Options:
-  -d, --db-path <DB_PATH>  Path to the database file (default: db.bin) [default: db.bin]
-  -h, --help               Print help
-```
-
-## Building
-
-To build the project, you'll need a [Rust compiler](https://www.rust-lang.org/tools/install) installed.
-
-```bash
-cargo build --release
-```
+1. Install a [Rust compiler](https://www.rust-lang.org/tools/install) to make use of this tool, as no binaries are distributed.
+2. Install the tool from [crates.io](https://crates.io/crates/unity-asset-graph): `cargo install unity-asset-graph`
+3. Run the tool: `uag --help`
 
 ## Contributing
 

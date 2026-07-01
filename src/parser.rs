@@ -1,26 +1,26 @@
+mod csharp;
+mod directory;
 pub mod manifest_json;
 pub mod package_json;
 mod unity;
-mod csharp;
-mod directory;
 
 #[cfg(feature = "locstring")]
-mod loc_text;
+mod loc_override;
 #[cfg(feature = "locstring")]
 mod loc_resource;
 #[cfg(feature = "locstring")]
-mod loc_override;
+mod loc_text;
 
-pub use csharp::{type_broker::TypeBroker, qualified_name::{QualifiedName, QualifiedNameOwned}};
+pub use csharp::{
+    qualified_name::{QualifiedName, QualifiedNameOwned},
+    type_broker::TypeBroker,
+};
 
+use crate::{asset::Asset, asset_type::AssetType};
 use std::{
     error::Error,
-    sync::{Arc, Mutex},
     path::{Path, PathBuf},
-};
-use crate::{
-    asset::Asset,
-    asset_type::AssetType,
+    sync::{Arc, Mutex},
 };
 
 #[derive(Debug, Default)]
@@ -52,7 +52,11 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mutex<TypeBroker>>) -> Result<Vec<Asset>, ParseError> {
+pub fn parse(
+    asset: &mut Asset,
+    relative_to: Option<&PathBuf>,
+    broker: &Arc<Mutex<TypeBroker>>,
+) -> Result<Vec<Asset>, ParseError> {
     if asset.path.is_none() {
         return Ok(vec![]);
     }
@@ -68,10 +72,11 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>, broker: &Arc<Mute
     }
     #[cfg(feature = "locstring")]
     if let Some(filename) = asset.path.as_ref().unwrap().file_name().and_then(|f| f.to_str())
-        && filename.ends_with("Resource.en-us.json") {
+        && filename.ends_with("Resource.en-us.json")
+    {
         asset.asset_type = AssetType::LocResource;
         return loc_resource::parse(asset, relative_to);
     }
-    
+
     Ok(vec![])
 }

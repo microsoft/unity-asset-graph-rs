@@ -6,8 +6,8 @@ pub use r#ref::*;
 pub use search::*;
 
 use std::{
-    fmt::{Display, Formatter, Result as FResult},
     borrow::Borrow,
+    fmt::{Display, Formatter, Result as FResult},
 };
 
 const GENERIC_NAMES: [&str; 7] = [
@@ -17,7 +17,7 @@ const GENERIC_NAMES: [&str; 7] = [
     "<T,U,V,W>",
     "<T,U,V,W,X>",
     "<T,U,V,W,X,Y>",
-    "<T,U,V,W,X,Y,Z>"
+    "<T,U,V,W,X,Y,Z>",
 ];
 
 #[derive(Debug)]
@@ -53,7 +53,7 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
     type Str: Borrow<str>;
 
     fn global() -> Self;
-    fn parts(&self) -> impl ExactSizeIterator<Item=&Self::Part>;
+    fn parts(&self) -> impl ExactSizeIterator<Item = &Self::Part>;
     fn alias(&self) -> Option<&Self::Str>;
 
     /// Splits the name into two at the given index. [0, index) is left here, [index, len) is in the returned name
@@ -79,8 +79,11 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
         (p1, p2)
     }
 
-    fn ends_with<P, S>(&self, other: &impl QualifiedName<Part=P, Str=S>) -> bool
-    where Self::Part: PartialEq<P>, Self::Str: PartialEq<S> {
+    fn ends_with<P, S>(&self, other: &impl QualifiedName<Part = P, Str = S>) -> bool
+    where
+        Self::Part: PartialEq<P>,
+        Self::Str: PartialEq<S>,
+    {
         if let Some(oa) = other.alias() {
             if let Some(sa) = self.alias() {
                 sa == oa && self.parts().eq(other.parts())
@@ -94,8 +97,11 @@ pub trait QualifiedName: Clone + PartialEq + Eq + PartialOrd + Ord + std::hash::
         }
     }
 
-    fn trim_end<P, S>(&mut self, other: &impl QualifiedName<Part=P, Str=S>)
-    where Self::Part: PartialEq<P>, Self::Str: PartialEq<S> {
+    fn trim_end<P, S>(&mut self, other: &impl QualifiedName<Part = P, Str = S>)
+    where
+        Self::Part: PartialEq<P>,
+        Self::Str: PartialEq<S>,
+    {
         if self.ends_with(other) {
             self.split_off(self.len() - other.len());
         }

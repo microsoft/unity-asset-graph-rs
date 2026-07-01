@@ -1,16 +1,25 @@
-use std::{
-    cell::RefCell, collections::{HashMap, HashSet }, fmt::Display, fs, path::PathBuf,
-};
-use serde::{Deserialize, Serialize};
-use regex::{Regex, RegexBuilder};
 use crate::{
-    BoundAsset, QualifiedName, QualifiedNameOwned, asset::Asset, asset_type::AssetType, id::Id, parser::{ParseError, TypeBroker}
+    BoundAsset, QualifiedName, QualifiedNameOwned,
+    asset::Asset,
+    asset_type::AssetType,
+    id::Id,
+    parser::{ParseError, TypeBroker},
+};
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Serialize};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
-mod roots;
 mod populate_pass1;
 mod populate_pass2;
 mod populate_pass3;
+mod roots;
 
 #[derive(Debug)]
 pub enum DatabaseError {
@@ -46,15 +55,13 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(root: &str, relative_to: Option<&str>) -> Result<Self, DatabaseError> {
-        let relative_to = if let Some(pathstr) = relative_to
-            && let Ok(path) = fs::canonicalize(pathstr)
-        {
-            Some(path)
-        }
-        else {
-            eprintln!("failed to canonicalize relative path '{relative_to:?}'");
-            None
+    pub fn new(root: &Path, relative_to: &Path) -> Result<Self, DatabaseError> {
+        let relative_to = match relative_to.canonicalize() {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("Failed to resolve relative_to root: {e}");
+                None
+            }
         };
 
         let mut db = Self {
@@ -64,7 +71,7 @@ impl Database {
             assets: HashMap::new(),
         };
 
-        db.add_root_str(root).map(|_| db)
+        db.add_root(root, &mut HashSet::new()).map(|_| db)
     }
 
     pub fn populate(&mut self) -> Result<(), DatabaseError> {
@@ -92,16 +99,16 @@ impl Database {
                     Some((rel_id, mut rel_asset)) => {
                         rel_asset.back_relations.insert(asset.invert_relation(relation));
                         (rel_id, rel_asset)
-                    },
+                    }
                     None => {
                         let a = Asset::new(
-                            relation.id().clone(), 
-                            AssetType::BrokenRef, 
-                            None, 
+                            relation.id().clone(),
+                            AssetType::BrokenRef,
+                            None,
                             [asset.invert_relation(relation)],
                         );
                         (relation.id().clone(), a)
-                    },
+                    }
                 };
                 self.assets.insert(rel_id, rel_asset);
             }
@@ -125,8 +132,12 @@ impl Database {
         self.assets.get_mut(id)
     }
 
-    pub fn assets<'a>(&'a self) -> impl Iterator<Item = BoundAsset<'a>> {
-        self.assets.values().map(|a| a.bind(self))
+    pub fn assets<'a>(&'a self) -> std::vec::IntoIter<BoundAsset<'a>> {
+        self.assets
+            .values()
+            .map(|a| a.bind(self))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn find_assets_by_path<'a>(&'a self, filter: &AssetFilter) -> impl ExactSizeIterator<Item = BoundAsset<'a>> {
@@ -151,6 +162,14 @@ impl Database {
     }
 }
 
+impl<'a> IntoIterator for &'a Database {
+    type Item = BoundAsset<'a>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.assets()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AssetFilter {
     re: Regex,
@@ -167,9 +186,9 @@ impl AssetFilter {
     }
 }
 
-impl TryFrom<&str> for AssetFilter {
-    type Error = regex::Error;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+impl FromStr for AssetFilter {
+    type Err = regex::Error;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (invert, pat) = if value.starts_with('~') {
             (true, value.split_at(1).1)
         } else {
@@ -182,24 +201,16 @@ impl TryFrom<&str> for AssetFilter {
     }
 }
 
-impl TryFrom<&String> for AssetFilter {
-    type Error = regex::Error;
-    fn try_from(value: &String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
-
-impl TryFrom<String> for AssetFilter {
-    type Error = regex::Error;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
-
 impl Display for AssetFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}",
-            if self.invert { "~" } else { "" },
+        write!(
+            f,
+            "{}{}",
+            if self.invert {
+                "~"
+            } else {
+                ""
+            },
             self.re,
         )
     }
@@ -211,11 +222,11 @@ mod test {
 
     #[test]
     fn asset_filter() {
-        let filter = AssetFilter::try_from("abcd").unwrap();
+        let filter = AssetFilter::from_str("abcd").unwrap();
         assert!(filter.matches("abcdefg"));
         assert!(!filter.matches("cdefg"));
-        
-        let filter = AssetFilter::try_from("~abcd").unwrap();
+
+        let filter = AssetFilter::from_str("~abcd").unwrap();
         assert!(!filter.matches("abcdefg"));
         assert!(filter.matches("cdefg"));
     }

@@ -1,16 +1,9 @@
+use crate::{Asset, AssetType, Database, DatabaseError, parser::ParseError, util};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
-};
-use crate::{
-    Asset,
-    AssetType,
-    Database,
-    DatabaseError,
-    parser::ParseError,
-    util,
 };
 
 const THREADS: usize = 4;
@@ -44,7 +37,9 @@ impl Database {
 
             let mut first = true;
             while let Ok(e) = err_rx.try_recv() {
-                if let DatabaseError::Parse(ParseError { ref path, .. }) = e && !self.roots.contains(path) {
+                if let DatabaseError::Parse(ParseError { ref path, .. }) = e
+                    && !self.roots.contains(path)
+                {
                     if first {
                         eprintln!();
                         first = false;
@@ -85,7 +80,7 @@ impl Database {
                         Some(rel) => rel.join(p),
                         None => p,
                     }
-                },
+                }
                 None => {
                     retries += 1;
                     thread::sleep(Duration::from_millis(50));
@@ -104,7 +99,8 @@ impl Database {
             // skip non-asset files/folders
             if let Some(file_name) = path.file_name()
                 && let Some(name) = file_name.to_str()
-                && name.ends_with("~") {
+                && name.ends_with("~")
+            {
                 continue;
             }
 
@@ -113,28 +109,26 @@ impl Database {
                     if let Err(e) = assets_tx.send(asset) {
                         eprintln!("Error sending asset: {}", e);
                     }
-                },
+                }
                 Err(e) => {
                     if let Err(e) = err_tx.send(e) {
                         eprintln!("Error sending error: {}", e);
                     }
-                },
-                _ => { },
+                }
+                _ => {}
             }
 
             if path.is_dir() {
                 match Self::find_assets_dir(&path) {
-                    Ok(new_paths) => {
-                        match paths.lock() {
-                            Ok(mut paths) => {
-                                for p in new_paths {
-                                    paths.push(p);
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Error locking paths: {}", e);
-                                continue;
+                    Ok(new_paths) => match paths.lock() {
+                        Ok(mut paths) => {
+                            for p in new_paths {
+                                paths.push(p);
                             }
+                        }
+                        Err(e) => {
+                            eprintln!("Error locking paths: {}", e);
+                            continue;
                         }
                     },
                     Err(e) => {
@@ -147,7 +141,7 @@ impl Database {
         }
     }
 
-    fn find_assets_dir(path: &PathBuf) -> Result<Vec<PathBuf>, DatabaseError>{
+    fn find_assets_dir(path: &PathBuf) -> Result<Vec<PathBuf>, DatabaseError> {
         let files = match path.read_dir() {
             Ok(files) => files,
             Err(_) => return Err(DatabaseError::BadPath(path.clone())),
@@ -159,7 +153,7 @@ impl Database {
                 Err(e) => {
                     eprintln!("Error reading file in '{}': {}", path.display(), e);
                     continue;
-                },
+                }
                 Ok(f) => f,
             };
 
@@ -167,7 +161,8 @@ impl Database {
 
             // skip meta files for now
             if let Some(ext) = path.extension().and_then(|s| s.to_str())
-                && ext == "meta" {
+                && ext == "meta"
+            {
                 continue;
             }
 
@@ -184,10 +179,10 @@ impl Database {
         };
 
         let rel_path = if let Some(rel_to) = relative_to.as_ref()
-            && let Ok(rel) = path.strip_prefix(rel_to) {
+            && let Ok(rel) = path.strip_prefix(rel_to)
+        {
             PathBuf::from(rel)
-        }
-        else {
+        } else {
             path.clone()
         };
 
@@ -195,14 +190,13 @@ impl Database {
             asset_guid,
             if path.is_dir() {
                 AssetType::Directory
-            }
-            else {
+            } else {
                 (&rel_path).into()
             },
             Some(rel_path),
             [],
         );
-        
+
         Ok(Some(asset))
     }
 }
