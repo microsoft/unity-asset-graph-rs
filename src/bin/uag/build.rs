@@ -16,19 +16,15 @@ pub struct BuildArgs {
 }
 
 impl BuildArgs {
-    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
+    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
         let Self {
             project_path,
             relative_to,
         } = self;
-        let mut db = Database::new(project_path, relative_to).expect("Error initializing database");
+        let project_path = project_path.canonicalize()?;
 
-        if let Err(e) = db.populate() {
-            panic!("Error finding assets: {}", e);
-        }
-
-        DatabaseFile::from(db)
-            .save(db_path)
-            .expect("Error saving database file");
+        let mut db = Database::new(&project_path, relative_to)?;
+        db.populate()?;
+        DatabaseFile::from(db).save(db_path)
     }
 }

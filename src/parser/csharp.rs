@@ -9,10 +9,7 @@ mod find_locstrings;
 
 use crate::{Asset, parser::ParseError};
 use std::{
-    fs::File,
-    io::Read,
-    path::PathBuf,
-    sync::{Arc, LazyLock, Mutex},
+    fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, LazyLock, Mutex},
 };
 use tree_sitter::{Language, Parser};
 use tree_sitter_c_sharp as cs;
@@ -22,15 +19,11 @@ pub static CS_LANG: LazyLock<Language> = LazyLock::new(|| cs::LANGUAGE.into());
 
 pub fn parse(
     asset: &mut Asset,
-    relative_to: Option<&PathBuf>,
+    relative_to: &Path,
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
-
-    let mut file = match File::open(path) {
+    let path = relative_to.join(asset.path.as_ref().unwrap());
+    let mut file = match File::open(&path) {
         Ok(f) => f,
         Err(e) => {
             return Err(ParseError {
@@ -67,7 +60,7 @@ pub fn parse(
 fn parse_buffer(
     buffer: &[u8],
     asset: &mut Asset,
-    path: &PathBuf,
+    path: &Path,
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<Vec<Asset>, ParseError> {
     let mut def_assets = vec![];
@@ -80,7 +73,7 @@ fn parse_buffer(
         Some(t) => t,
         None => {
             return Err(ParseError {
-                path: path.clone(),
+                path: path.to_path_buf(),
                 message: "Failed to parse C# file".into(),
                 ..Default::default()
             });

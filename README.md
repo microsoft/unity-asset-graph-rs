@@ -6,6 +6,7 @@ Query relationships between Unity engine assets/scripts
 
 1. Install a [Rust compiler](https://www.rust-lang.org/tools/install) to make use of this tool, as no binaries are distributed.
 2. Install the tool from [crates.io](https://crates.io/crates/unity-asset-graph): `cargo install unity-asset-graph`
+    * If your Unity project uses UXTools, install with localization string tracking: `cargo install unity-asset-graph --features locstring`
 3. Run the tool: `uag --help`
 
 ## Contributing

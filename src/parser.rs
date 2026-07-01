@@ -54,7 +54,7 @@ impl std::error::Error for ParseError {}
 
 pub fn parse(
     asset: &mut Asset,
-    relative_to: Option<&PathBuf>,
+    relative_to: &Path,
     broker: &Arc<Mutex<TypeBroker>>,
 ) -> Result<Vec<Asset>, ParseError> {
     if asset.path.is_none() {

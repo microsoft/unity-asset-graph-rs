@@ -1,5 +1,5 @@
 use crate::CliArgs;
-use clap::Args;
+use clap::{Args, CommandFactory, error::ErrorKind};
 use std::collections::{HashMap, HashSet};
 use unity_asset_graph::{AssetFilter, BoundAsset, BoundRelation, DatabaseFile, Id};
 
@@ -27,7 +27,7 @@ pub struct OutsideArgs {
 }
 
 impl OutsideArgs {
-    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
+    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
         let Self {
             in_id,
             in_path,
@@ -35,14 +35,12 @@ impl OutsideArgs {
             out_path,
         } = self;
 
-        let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to load database file from {db_path}: {e}",
-                    db_path = db_path.display()
-                )
-            })
-            .database;
+        if in_id.len() + in_path.len() == 0 {
+            let e = CliArgs::command().error(ErrorKind::TooFewValues, "Must supply at least one of --in-id and --in-path");
+            return Err(Box::new(e));
+        }
+
+        let db = DatabaseFile::load(db_path)?.database;
 
         let mut roots = HashSet::new();
         for id in in_id {
@@ -50,9 +48,6 @@ impl OutsideArgs {
         }
         for path in in_path {
             roots.extend(db.find_assets_by_path(&path));
-        }
-        if roots.is_empty() {
-            panic!("At least one container asset must be specified via --id or --path");
         }
 
         let root_len = roots.len();
@@ -90,6 +85,8 @@ impl OutsideArgs {
                 })
             );
         }
+
+        Ok(())
     }
 }
 

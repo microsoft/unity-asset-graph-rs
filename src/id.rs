@@ -9,7 +9,7 @@ pub enum Id {
     None,
     Guid(Uuid),
     Loc(String),
-    /// A C# type identified by its full name parts in reverse order (e.g. ["MyClass", "MyNamespace"])
+    /// A C# type identified by its full name parts
     CsType(QualifiedNameOwned),
 }
 
@@ -23,3 +23,4 @@ impl Display for Id {
         }
     }
 }
+

@@ -6,18 +6,13 @@ use crate::{
     util,
 };
 use std::{
-    collections::{HashMap, HashSet},
-    io::BufRead,
-    path::PathBuf,
+    collections::{HashMap, HashSet}, io::BufRead, path::{Path, PathBuf},
 };
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
+pub fn parse(asset: &mut Asset, relative_to: &Path) -> Result<Vec<Asset>, ParseError> {
+    let path = relative_to.join(asset.path.as_ref().unwrap());
 
-    let mut reader = match util::read_file_no_bom(path) {
+    let mut reader = match util::read_file_no_bom(&path) {
         Ok(file) => file,
         Err(e) => {
             return Err(ParseError::new(path, format!("Failed to read prefab file: {}", e)));
@@ -30,12 +25,9 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
 fn parse_reader(
     reader: &mut dyn BufRead,
     asset: &mut Asset,
-    relative_to: Option<&PathBuf>,
+    relative_to: &Path,
 ) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
+    let path = relative_to.join(asset.path.as_ref().unwrap());
     let locstrings: HashMap<String, String> = match serde_json::from_reader(reader) {
         Ok(map) => map,
         Err(e) => {

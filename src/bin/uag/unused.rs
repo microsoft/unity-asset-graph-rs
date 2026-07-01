@@ -10,7 +10,7 @@ use unity_asset_graph::{AssetFilter, AssetType, DatabaseFile, Relation};
 #[derive(Args)]
 pub struct UnusedArgs {
     /// Only show assets whose IDs match this partial ID
-    #[arg(long)]
+    #[arg(long, short)]
     id: Vec<AssetFilter>,
 
     /// Only print IDs of unused assets
@@ -23,16 +23,9 @@ pub struct UnusedArgs {
 }
 
 impl UnusedArgs {
-    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
+    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
         let Self { id, id_only, summarize } = self;
-        let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to load database file from {db_path}: {e}",
-                    db_path = db_path.display()
-                )
-            })
-            .database;
+        let db = DatabaseFile::load(db_path)?.database;
 
         let mut orphans = HashSet::new();
         let mut types: HashMap<AssetType, usize> = HashMap::new();
@@ -66,5 +59,7 @@ impl UnusedArgs {
         if orphans.is_empty() {
             println!("No unused assets found.");
         }
+
+        Ok(())
     }
 }

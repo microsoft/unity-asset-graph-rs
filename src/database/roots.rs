@@ -29,7 +29,10 @@ impl Database {
         if manifest_path.exists() {
             let reader = match read_file_no_bom(&manifest_path) {
                 Ok(r) => r,
-                Err(_) => return Err(DatabaseError::BadPath(manifest_path)),
+                Err(e) => return Err(DatabaseError::BadPath {
+                    path: Some(manifest_path),
+                    inner: Some(e),
+                }),
             };
             let manifest: ManifestJson = match serde_json::from_reader(reader) {
                 Ok(m) => m,
@@ -99,7 +102,10 @@ impl Database {
         if lib_path.exists() {
             let dir = match fs::read_dir(&lib_path) {
                 Ok(d) => d,
-                Err(_) => return Err(DatabaseError::BadPath(lib_path)),
+                Err(e) => return Err(DatabaseError::BadPath {
+                    path: Some(lib_path),
+                    inner: Some(e),
+                }),
             };
             for pkg in dir {
                 let entry = match pkg {
@@ -136,14 +142,16 @@ impl Database {
     }
 
     fn resolve_rel_path(&self, path: &Path) -> Result<PathBuf, DatabaseError> {
-        if let Some(root) = &self.relative_to
-            && let Ok(path) = path.strip_prefix(root)
-        {
-            Ok(PathBuf::from(path))
-        } else if path.is_absolute() {
-            Ok(path.to_path_buf())
-        } else {
-            Err(DatabaseError::BadPath(path.to_path_buf()))
+        match path.strip_prefix(&self.relative_to) {
+            Ok(path) => Ok(path.to_path_buf()),
+            Err(_) if path.is_absolute() => Ok(path.to_path_buf()),
+            Err(e) => {
+                eprintln!("{path} strips {rel}: {e}", path = path.display(), rel = self.relative_to.display());
+                Err(DatabaseError::BadPath {
+                   path: Some(path.to_path_buf()),
+                    inner: None,
+                })
+            },
         }
     }
 }

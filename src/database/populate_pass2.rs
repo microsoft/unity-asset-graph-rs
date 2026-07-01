@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{
     mem,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
@@ -35,7 +35,7 @@ impl Database {
             let err_tx = err_tx.clone();
             let relative_to = self.relative_to.clone();
             handles.push(thread::spawn(move || {
-                Self::resolve_assets_job(assets, broker, relative_to.as_ref(), tx, err_tx);
+                Self::resolve_assets_job(assets, broker, &relative_to, tx, err_tx);
             }));
         }
 
@@ -69,7 +69,7 @@ impl Database {
     fn resolve_assets_job(
         assets: Arc<Mutex<Vec<Asset>>>,
         broker: Arc<Mutex<TypeBroker>>,
-        relative_to: Option<&PathBuf>,
+        relative_to: &Path,
         tx: mpsc::Sender<Asset>,
         err_tx: mpsc::Sender<DatabaseError>,
     ) {

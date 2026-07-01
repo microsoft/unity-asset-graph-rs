@@ -9,11 +9,11 @@ use unity_asset_graph::{AssetFilter, DatabaseFile};
 #[derive(Args)]
 pub struct InfoArgs {
     /// Partial ID of the asset
-    #[arg(long, short)]
+    #[arg(long, short, group = "input")]
     id: Option<AssetFilter>,
 
     /// Partial path of the asset
-    #[arg(long, short)]
+    #[arg(long, short, group = "input")]
     path: Option<AssetFilter>,
 
     /// Show the list of detected package roots and exit
@@ -22,16 +22,9 @@ pub struct InfoArgs {
 }
 
 impl InfoArgs {
-    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
+    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
         let Self { id, path, roots } = self;
-        let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to load database file from {db_path}: {e}",
-                    db_path = db_path.display()
-                )
-            })
-            .database;
+        let db = DatabaseFile::load(db_path)?.database;
 
         if *roots {
             let mut sorted_roots: Vec<String> = db.roots().iter().map(|r| r.display().to_string()).collect();
@@ -39,6 +32,7 @@ impl InfoArgs {
             for r in &sorted_roots {
                 println!("- {r}");
             }
+            Ok(())
         } else if let Some(id) = id {
             let assets = db.find_assets_by_id(&id);
             if assets.len() == 0 {
@@ -48,6 +42,7 @@ impl InfoArgs {
                     println!("{}", a.display_full());
                 }
             }
+            Ok(())
         } else if let Some(path) = path {
             let assets = db.find_assets_by_path(&path);
             if assets.len() == 0 {
@@ -57,8 +52,9 @@ impl InfoArgs {
                     println!("{}", a.display_full());
                 }
             }
+            Ok(())
         } else {
-            panic!("One of --id or --path must be provided");
+            panic!("How did we get here?");
         }
     }
 }

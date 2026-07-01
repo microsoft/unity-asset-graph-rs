@@ -1,9 +1,6 @@
 use crate::{Asset, AssetType, Database, DatabaseError, parser::ParseError, util};
 use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex, mpsc},
-    thread,
-    time::Duration,
+    path::{Path, PathBuf}, sync::{Arc, Mutex, mpsc}, thread, time::Duration,
 };
 
 const THREADS: usize = 4;
@@ -25,7 +22,7 @@ impl Database {
             let err_tx = err_tx.clone();
             let relative_to = self.relative_to.clone();
             handles.push(thread::spawn(move || {
-                Self::find_assets_job(paths, relative_to.as_ref(), tx, err_tx);
+                Self::find_assets_job(paths, &relative_to, tx, err_tx);
             }));
         }
 
@@ -67,7 +64,7 @@ impl Database {
 
     fn find_assets_job(
         paths: Arc<Mutex<Vec<PathBuf>>>,
-        relative_to: Option<&PathBuf>,
+        relative_to: &Path,
         assets_tx: mpsc::Sender<Asset>,
         err_tx: mpsc::Sender<DatabaseError>,
     ) {
@@ -76,20 +73,20 @@ impl Database {
             let path = match paths.lock().unwrap().pop() {
                 Some(p) => {
                     retries = 0;
-                    match relative_to {
-                        Some(rel) => rel.join(p),
-                        None => p,
-                    }
-                }
+                    relative_to.join(p)
+                },
                 None => {
                     retries += 1;
                     thread::sleep(Duration::from_millis(50));
                     continue;
-                }
+                },
             };
 
             if !path.exists() {
-                let err = DatabaseError::BadPath(path.clone());
+                let err = DatabaseError::BadPath {
+                    path: Some(path.clone()),
+                    inner: Some(std::io::Error::from(std::io::ErrorKind::NotFound)),
+                };
                 if let Err(e) = err_tx.send(err) {
                     eprintln!("Error sending error: {}", e);
                     continue;
@@ -144,7 +141,10 @@ impl Database {
     fn find_assets_dir(path: &PathBuf) -> Result<Vec<PathBuf>, DatabaseError> {
         let files = match path.read_dir() {
             Ok(files) => files,
-            Err(_) => return Err(DatabaseError::BadPath(path.clone())),
+            Err(e) => return Err(DatabaseError::BadPath {
+                path: Some(path.clone()),
+                inner: Some(e),
+            }),
         };
 
         let mut paths = vec![];
@@ -172,15 +172,13 @@ impl Database {
         Ok(paths)
     }
 
-    fn find_assets_file(path: &PathBuf, relative_to: Option<&PathBuf>) -> Result<Option<Asset>, DatabaseError> {
+    fn find_assets_file(path: &PathBuf, relative_to: &Path) -> Result<Option<Asset>, DatabaseError> {
         let asset_guid = match util::get_id_of_asset(path) {
             Ok(id) => id,
             Err(_) => return Ok(None),
         };
 
-        let rel_path = if let Some(rel_to) = relative_to.as_ref()
-            && let Ok(rel) = path.strip_prefix(rel_to)
-        {
+        let rel_path = if let Ok(rel) = path.strip_prefix(relative_to) {
             PathBuf::from(rel)
         } else {
             path.clone()

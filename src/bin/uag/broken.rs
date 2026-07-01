@@ -19,17 +19,10 @@ pub struct BrokenArgs {
 }
 
 impl BrokenArgs {
-    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) {
+    pub fn run(&self, CliArgs { db_path, .. }: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
         let Self { id, id_only } = &self;
 
-        let db = DatabaseFile::load(db_path)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to load database file from {db_path}: {e}",
-                    db_path = db_path.display()
-                )
-            })
-            .database;
+        let db = DatabaseFile::load(db_path)?.database;
 
         let mut broken_refs = HashSet::new();
         for asset in &db {
@@ -51,5 +44,7 @@ impl BrokenArgs {
         if broken_refs.is_empty() {
             println!("No broken references found.");
         }
+
+        Ok(())
     }
 }

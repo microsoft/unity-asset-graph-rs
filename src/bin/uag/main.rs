@@ -33,17 +33,20 @@ enum CliCommand {
 }
 
 impl CliArgs {
-    pub fn run(&self) {
+    pub fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         match &self.command {
             CliCommand::Build(args) => args.run(self),
             CliCommand::Info(args) => args.run(self),
             CliCommand::Unused(args) => args.run(self),
             CliCommand::Broken(args) => args.run(self),
             CliCommand::Outside(args) => args.run(self),
-        };
+        }
     }
 }
 
 fn main() {
-    CliArgs::parse().run();
+    if let Err(e) = CliArgs::parse().run() {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
 }

@@ -14,6 +14,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
+    io::Error as IoError,
 };
 
 mod populate_pass1;
@@ -25,7 +26,7 @@ mod roots;
 pub enum DatabaseError {
     Parse(ParseError),
     Regex(regex::Error),
-    BadPath(PathBuf),
+    BadPath { path: Option<PathBuf>, inner: Option<IoError> },
 }
 
 impl DatabaseError {
@@ -39,16 +40,29 @@ impl std::fmt::Display for DatabaseError {
         match self {
             Self::Parse(p) => write!(f, "Parse error: {p}"),
             Self::Regex(r) => write!(f, "Regex error: {r}"),
-            Self::BadPath(p) => write!(f, "Bad path: {}", p.display()),
+            Self::BadPath { path, inner } => {
+                match (path, inner) {
+                    (Some(p), Some(e)) => write!(f, "Bad path {p}: {e}", p = p.display()),
+                    (Some(p), None) => write!(f, "Bad path {p}", p = p.display()),
+                    (None, Some(e)) => write!(f, "Bad path: {e}"),
+                    (None, None) => write!(f, "Bad path"),
+                }
+            },
         }
     }
 }
 
 impl std::error::Error for DatabaseError {}
 
+impl From<IoError> for DatabaseError {
+    fn from(value: IoError) -> Self {
+        Self::BadPath { path: None, inner: Some(value) }
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct Database {
-    relative_to: Option<PathBuf>,
+    relative_to: PathBuf,
     roots: HashSet<PathBuf>,
     loc_roots: HashSet<PathBuf>,
     assets: HashMap<Id, Asset>,
@@ -56,13 +70,7 @@ pub struct Database {
 
 impl Database {
     pub fn new(root: &Path, relative_to: &Path) -> Result<Self, DatabaseError> {
-        let relative_to = match relative_to.canonicalize() {
-            Ok(p) => Some(p),
-            Err(e) => {
-                eprintln!("Failed to resolve relative_to root: {e}");
-                None
-            }
-        };
+        let relative_to = relative_to.canonicalize().map_err(DatabaseError::from)?;
 
         let mut db = Self {
             relative_to,

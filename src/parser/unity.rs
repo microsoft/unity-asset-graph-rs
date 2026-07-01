@@ -6,19 +6,16 @@ use crate::{
     parser::ParseError,
 };
 use regex::Regex;
-use std::{io::BufRead, path::PathBuf, sync::LazyLock};
+use std::{io::BufRead, path::{Path, PathBuf}, sync::LazyLock};
 use uuid::Uuid;
 
 static ID_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([0-9a-f]{32})\b").expect("Failed to compile ID regex"));
 
-pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
+pub fn parse(asset: &mut Asset, relative_to: &Path) -> Result<Vec<Asset>, ParseError> {
+    let path = relative_to.join(asset.path.as_ref().unwrap());
 
-    let mut reader = match crate::util::read_file_no_bom(path) {
+    let mut reader = match crate::util::read_file_no_bom(&path) {
         Ok(file) => file,
         Err(e) => {
             return Err(ParseError::new(&path, format!("Failed to read prefab file: {}", e)));
@@ -31,12 +28,9 @@ pub fn parse(asset: &mut Asset, relative_to: Option<&PathBuf>) -> Result<Vec<Ass
 fn parse_reader(
     reader: &mut dyn BufRead,
     asset: &mut Asset,
-    relative_to: Option<&PathBuf>,
+    relative_to: &Path,
 ) -> Result<Vec<Asset>, ParseError> {
-    let path = match relative_to {
-        Some(rel) => &rel.join(asset.path.as_ref().unwrap()),
-        None => asset.path.as_ref().unwrap(),
-    };
+    let path = relative_to.join(asset.path.as_ref().unwrap());
 
     #[cfg(feature = "locstring")]
     let mut loctext_parser = LocStringParser::Start;
@@ -151,7 +145,8 @@ PrefabInstance:
             Some(PathBuf::from("test.prefab")),
             [],
         );
-        let result = parse_reader(&mut reader, &mut asset, None);
+        let relpath = PathBuf::from(".");
+        let result = parse_reader(&mut reader, &mut asset, &relpath);
 
         assert!(result.is_ok());
         assert!(asset.relations.contains(&Relation::Uses(Id::Guid(
@@ -160,20 +155,23 @@ PrefabInstance:
         assert!(asset.relations.contains(&Relation::Uses(Id::Guid(
             Uuid::parse_str("05503c2c5cf7b7f45bec1113802f99a0").unwrap()
         ))));
-        assert!(
-            asset
-                .relations
-                .contains(&Relation::Uses(Id::Loc("people_panel_people_label".into())))
-        );
-        assert!(
-            asset
-                .relations
-                .contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into())))
-        );
-        assert!(
-            asset
-                .relations
-                .contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into())))
-        );
+        #[cfg(feature = "locstring")]
+        {
+            assert!(
+                asset
+                    .relations
+                    .contains(&Relation::Uses(Id::Loc("people_panel_people_label".into())))
+            );
+            assert!(
+                asset
+                    .relations
+                    .contains(&Relation::Uses(Id::Loc("events_host_panel_hand_raised_label".into())))
+            );
+            assert!(
+                asset
+                    .relations
+                    .contains(&Relation::Uses(Id::Loc("events_host_panel_broadcasting_label".into())))
+            );
+        }
     }
 }
