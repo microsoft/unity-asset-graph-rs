@@ -5,7 +5,7 @@ use std::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Default, Debug, Clone, Copy)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Default, Debug, Clone, Copy, Hash)]
 pub enum AssetType {
     #[default]
     Unknown,

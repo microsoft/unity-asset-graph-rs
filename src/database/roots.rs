@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     fs,
 };
 use crate::{
@@ -14,22 +14,15 @@ use crate::{
 use super::{Database, DatabaseError};
 
 impl Database {
-    pub fn add_root_str(&mut self, path: &str) -> Result<(), DatabaseError> {
-        let abs_root = PathBuf::from(path);
-        let abs_root = abs_root.canonicalize()
-            .map_err(|e| DatabaseError::BadPath(abs_root))?;
-        self.add_root(abs_root, &mut HashSet::new())
-    }
-
     /// Adds a root directory to the database, resolving dependencies recursively.
     /// If the directory contains a `manifest.json` or `package.json`, it will read dependencies and add them as well.
     /// If a dependency is a relative path (starting with `file:`), it will resolve it relative to the root directory.
     /// If a dependency is not found, it will be added to the `unresolved` set.
     /// # Arguments
     /// * `path` - The absolute path to the root directory to add.
-    fn add_root(
+    pub fn add_root(
         &mut self,
-        path: PathBuf,
+        path: &Path,
         unresolved: &mut HashSet<String>
     ) -> Result<(), DatabaseError> {
         let assets_dir = path.join("Assets");
@@ -62,7 +55,7 @@ impl Database {
                     }
                     
                     if dep_abs_path.exists() {
-                        self.add_root(dep_abs_path, unresolved)?;
+                        self.add_root(&dep_abs_path, unresolved)?;
                     } else {
                         eprintln!("Warning: Dependency path '{}' does not exist.", dep_abs_path.display());
                     }
@@ -95,7 +88,7 @@ impl Database {
                     }
 
                     if dep_abs_path.exists() {
-                        self.add_root(dep_abs_path, unresolved)?;
+                        self.add_root(&dep_abs_path, unresolved)?;
                     } else {
                         eprintln!("Warning: Dependency path '{}' does not exist.", dep_abs_path.display());
                     }
@@ -138,7 +131,7 @@ impl Database {
                 }
                 else if dep_path.is_dir() && unresolved.contains(name) {
                     unresolved.remove(name);
-                    if let Err(e) = self.add_root(dep_path, unresolved) {
+                    if let Err(e) = self.add_root(&dep_path, unresolved) {
                         eprintln!("Warning: Failed to add dependency '{}': {}", name, e);
                     }
                 }
@@ -148,15 +141,15 @@ impl Database {
         Ok(())
     }
 
-    fn resolve_rel_path(&self, path: &PathBuf) -> Result<PathBuf, DatabaseError> {
+    fn resolve_rel_path(&self, path: &Path) -> Result<PathBuf, DatabaseError> {
         if let Some(root) = &self.relative_to && let Ok(path) = path.strip_prefix(root) {
             Ok(PathBuf::from(path))
         }
         else if path.is_absolute() {
-            Ok(path.clone())
+            Ok(path.to_path_buf())
         }
         else {
-            Err(DatabaseError::BadPath(path.clone()))
+            Err(DatabaseError::BadPath(path.to_path_buf()))
         }
     }
 }
