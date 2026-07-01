@@ -1,11 +1,18 @@
 [package]
 name = "unity-asset-graph"
-version = "0.1.0"
+version = "0.2.0-alpha.1"
+description = "Query relationships between Unity engine assets/scripts"
+repository = "https://github.com/microsoft/unity-asset-graph-rs"
+license = "MIT"
+license-file = "LICENSE"
+keywords = ["unity3d", "unity", "analysis"]
+categories = ["command-line-utilities", "game-development"]
 edition = "2024"
 default-run = "unity-asset-graph"
 
+
 [features]
-default = ["locstring"]
+default = []
 locstring = []
 
 [dependencies]

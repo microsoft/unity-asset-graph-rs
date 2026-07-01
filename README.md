@@ -1,4 +1,4 @@
-# asset-graph-rs
+# unity-asset-graph-rs
 
 Build a database from a Unity project's assets and packages, and query it.
 
